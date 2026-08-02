@@ -14,9 +14,9 @@ ClearUp is a privacy-first Android storage cleaner for direct distribution outsi
 - Android 11+ system trash flow through `MediaStore.createTrashRequest`.
 - Storage category analyzer.
 - Installed application manager with optional `StorageStats` data.
-- Automatic privileged backend selection: Root, then Shizuku, then standard Android mode.
+- Automatic privileged backend selection: Root, then Shizuku/Sui, then standard Android mode.
 - Root actions for user apps: cache/code_cache cleanup, force-stop, freeze and unfreeze.
-- Shizuku UserService actions for user apps: cache-only cleanup, force-stop, freeze and unfreeze.
+- Shizuku UserService actions for user apps: force-stop, freeze and unfreeze; cache-only cleanup is enabled only on Android 13+.
 - Root orphan-directory scanner with fixed path allowlists and an installed-package recheck before deletion.
 - Separate local Root and Shizuku operation audits with action, target, exit code and truncated output.
 - Exact duplicate detection using local SHA-256.
@@ -55,4 +55,4 @@ The app refuses the update when the hash file is absent, SHA-256 differs, packag
 
 ## Safety model
 
-ClearUp never silently removes user media. Results include category, reason and risk. Personal files are sent to Android's system trash only after user confirmation. Privileged app actions validate package names, target user apps only in the UI and are blocked for protected packages and ClearUp itself. Shizuku does not expose arbitrary shell execution: the remote service accepts only four fixed operations and constructs argument arrays without a shell interpreter. Orphan directories are never preselected and are deleted only from fixed package roots after Android confirms that the package is no longer installed.
+ClearUp never silently removes user media. Results include category, reason and risk. Personal files are sent to Android's system trash only after user confirmation. Privileged app actions validate package names, target user apps only in the UI and are blocked for protected packages and ClearUp itself. Shizuku does not expose arbitrary shell execution: the remote service accepts only four fixed operations and constructs argument arrays without a shell interpreter. Because older Android versions do not safely guarantee `pm clear --cache-only`, ClearUp refuses that Shizuku action below Android 13 instead of risking application data. Orphan directories are never preselected and are deleted only from fixed package roots after Android confirms that the package is no longer installed.
