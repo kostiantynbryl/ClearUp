@@ -50,4 +50,29 @@ class AccessibilityCachePolicyTest {
         assertFalse(AccessibilityCachePolicy.isValidPackageName("com.example.app;rm"))
         assertFalse(AccessibilityCachePolicy.isValidPackageName("../data/local/tmp"))
     }
+
+    @Test
+    fun matchesOnlySelectedApplicationIdentity() {
+        assertTrue(
+            AccessibilityCachePolicy.matchesTarget(
+                value = "Example App",
+                packageName = "com.example.app",
+                appLabel = "Example App",
+            ),
+        )
+        assertTrue(
+            AccessibilityCachePolicy.matchesTarget(
+                value = "Package name: com.example.app",
+                packageName = "com.example.app",
+                appLabel = "Example App",
+            ),
+        )
+        assertFalse(
+            AccessibilityCachePolicy.matchesTarget(
+                value = "Another App",
+                packageName = "com.example.app",
+                appLabel = "Example App",
+            ),
+        )
+    }
 }
