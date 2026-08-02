@@ -8,6 +8,8 @@ import com.norvexa.clearup.data.duplicates.DuplicateRepository
 import com.norvexa.clearup.data.exclusions.ExclusionRepository
 import com.norvexa.clearup.data.history.HistoryStore
 import com.norvexa.clearup.data.privilege.PrivilegeManager
+import com.norvexa.clearup.data.privilege.RootAuditStore
+import com.norvexa.clearup.data.privilege.RootOrphanRepository
 import com.norvexa.clearup.data.privilege.RootShell
 import com.norvexa.clearup.data.scanner.ScannerEngine
 import com.norvexa.clearup.data.settings.SettingsRepository
@@ -26,7 +28,9 @@ class AppContainer(context: Context) {
     val scannerEngine = ScannerEngine(appContext)
     val duplicateRepository = DuplicateRepository(appContext)
     val trashManager = TrashManager(appContext)
-    val rootShell = RootShell()
+    val rootAuditStore = RootAuditStore(appContext)
+    val rootShell = RootShell(rootAuditStore)
+    val rootOrphanRepository = RootOrphanRepository(appContext, rootShell)
     val privilegeManager = PrivilegeManager(appContext, rootShell)
     val automationScheduler = AutomationScheduler(appContext)
     val updateRepository = UpdateRepository(appContext)
