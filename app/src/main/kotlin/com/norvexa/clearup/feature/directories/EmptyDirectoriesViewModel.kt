@@ -41,7 +41,7 @@ class EmptyDirectoriesViewModel(
     }
 
     fun setMinAgeDays(days: Int) {
-        if (days !in ALLOWED_MIN_AGE_DAYS || _state.value.scanning) return
+        if (days !in ALLOWED_MIN_AGE_DAYS || _state.value.scanning || _state.value.deleting) return
         _state.update {
             it.copy(
                 minAgeDays = days,
@@ -137,10 +137,10 @@ class EmptyDirectoriesViewModel(
         if (selected.isEmpty() || _state.value.deleting || _state.value.scanning) return
 
         viewModelScope.launch {
+            val ageDays = _state.value.minAgeDays
             _state.update { it.copy(deleting = true, message = null, error = null) }
             runCatching {
-                repository.deleteSelected(selected)
-            }.onSuccess { result ->
+                val result = repository.deleteSelected(selected)
                 if (result.deleted > 0) {
                     history.record(
                         type = HistoryType.CLEANUP,
@@ -149,13 +149,12 @@ class EmptyDirectoriesViewModel(
                         note = "EMPTY_DIRECTORIES",
                     )
                 }
-                val removedPaths = selected.mapTo(hashSetOf(), EmptyDirectory::canonicalPath)
-                _state.update { current ->
-                    current.copy(
+                result to repository.scan(ageDays)
+            }.onSuccess { (result, refreshedDirectories) ->
+                _state.update {
+                    it.copy(
                         deleting = false,
-                        directories = current.directories.filterNot {
-                            it.canonicalPath in removedPaths
-                        },
+                        directories = refreshedDirectories,
                         selectedPaths = emptySet(),
                         message = buildString {
                             append("Удалено: ${result.deleted}")
