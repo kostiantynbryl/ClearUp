@@ -74,11 +74,11 @@ def verify_file_paths() -> None:
     reports = [
         child
         for child in root.findall("cache-path")
-        if child.get(f"{ANDROID_NS}name") == "reports"
+        if child.get("name") == "reports"
     ]
     require(len(reports) == 1, "reports must have exactly one cache-path")
     require(
-        reports[0].get(f"{ANDROID_NS}path") == "reports/",
+        reports[0].get("path") == "reports/",
         "reports cache-path must stay restricted to reports/",
     )
 
