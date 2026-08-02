@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - develop/clearup-foundation
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -25,7 +28,7 @@ jobs:
         run: python3 scripts/verify_accessibility_safety.py
       - name: Storage safety guard
         run: python3 scripts/verify_storage_safety.py
-      - name: Unit tests and Android lint
-        run: ./gradlew :app:testDebugUnitTest :app:lintDebug --stacktrace
+      - name: Compile, unit tests and Android lint
+        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug --stacktrace
       - name: Analyze release R8 configuration
         run: ./gradlew :app:analyzeReleaseR8Config --stacktrace
