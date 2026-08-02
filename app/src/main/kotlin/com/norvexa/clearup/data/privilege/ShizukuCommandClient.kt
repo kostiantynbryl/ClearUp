@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
+import android.os.Process
 import android.os.UserHandle
 import com.norvexa.clearup.BuildConfig
 import kotlinx.coroutines.CompletableDeferred
@@ -104,7 +105,7 @@ class ShizukuCommandClient(
                 remote.execute(
                     operation,
                     packageName,
-                    UserHandle.myUserId(),
+                    currentUserId(),
                 ),
             )
         }.getOrElse { error ->
@@ -124,6 +125,9 @@ class ShizukuCommandClient(
         )
         result
     }
+
+    private fun currentUserId(): Int =
+        UserHandle.getUserHandleForUid(Process.myUid()).identifier
 
     private suspend fun awaitService(): IShizukuCommandService {
         service?.takeIf { it.asBinder().pingBinder() }?.let { return it }
