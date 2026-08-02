@@ -31,6 +31,8 @@ import com.norvexa.clearup.feature.analyzer.AnalyzerScreen
 import com.norvexa.clearup.feature.analyzer.AnalyzerViewModel
 import com.norvexa.clearup.feature.apps.AppsScreen
 import com.norvexa.clearup.feature.apps.AppsViewModel
+import com.norvexa.clearup.feature.directories.EmptyDirectoriesScreen
+import com.norvexa.clearup.feature.directories.EmptyDirectoriesViewModel
 import com.norvexa.clearup.feature.duplicates.DuplicatesScreen
 import com.norvexa.clearup.feature.duplicates.DuplicatesViewModel
 import com.norvexa.clearup.feature.exclusions.ExclusionsScreen
@@ -81,6 +83,7 @@ fun ClearUpNavigation(container: AppContainer) {
                         "accessibility" -> "Accessibility-помощник"
                         "analyzer" -> "Анализатор"
                         "duplicates" -> "Дубликаты"
+                        "empty-directories" -> "Пустые каталоги"
                         "exclusions" -> "Исключения"
                         "history" -> "История"
                         "privileges" -> "Доступ"
@@ -155,6 +158,7 @@ fun ClearUpNavigation(container: AppContainer) {
                 ToolsScreen(
                     onAnalyzer = { navController.navigate("analyzer") },
                     onDuplicates = { navController.navigate("duplicates") },
+                    onEmptyDirectories = { navController.navigate("empty-directories") },
                     onExclusions = { navController.navigate("exclusions") },
                     onHistory = { navController.navigate("history") },
                     onPrivileges = { navController.navigate("privileges") },
@@ -209,11 +213,23 @@ fun ClearUpNavigation(container: AppContainer) {
                 )
                 DuplicatesScreen(viewModel)
             }
+            composable("empty-directories") {
+                val viewModel: EmptyDirectoriesViewModel = viewModel(
+                    factory = EmptyDirectoriesViewModel.Factory(
+                        repository = container.emptyDirectoryRepository,
+                        history = container.historyStore,
+                    ),
+                )
+                EmptyDirectoriesScreen(viewModel)
+            }
             composable("exclusions") {
                 ExclusionsScreen(container.exclusionRepository)
             }
             composable("history") {
-                HistoryScreen(container.historyStore)
+                HistoryScreen(
+                    store = container.historyStore,
+                    exporter = container.reportExporter,
+                )
             }
             composable("privileges") {
                 val viewModel: PrivilegeViewModel = viewModel(
