@@ -20,10 +20,16 @@ class PrivilegeManager(
             context.packageManager.getPackageInfo(SHIZUKU_PACKAGE, 0)
         }.isSuccess
         val running = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
-        val permissionGranted = running && runCatching {
+        val version = if (running) {
+            runCatching { Shizuku.getVersion() }.getOrNull()
+        } else {
+            null
+        }
+        val supported = running && version != null && version >= MIN_SHIZUKU_VERSION
+        val permissionGranted = supported && runCatching {
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         }.getOrDefault(false)
-        val uid = if (running) {
+        val uid = if (supported) {
             runCatching { Shizuku.getUid() }.getOrNull()
         } else {
             null
@@ -40,12 +46,14 @@ class PrivilegeManager(
             shizukuRunning = running,
             shizukuPermissionGranted = permissionGranted,
             shizukuUid = uid,
+            shizukuVersion = version,
         )
     }
 
     fun requestShizukuPermission(requestCode: Int = SHIZUKU_PERMISSION_REQUEST) {
         if (
             Shizuku.pingBinder() &&
+            !Shizuku.isPreV11() &&
             Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED
         ) {
             Shizuku.requestPermission(requestCode)
@@ -55,5 +63,6 @@ class PrivilegeManager(
     companion object {
         private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
         private const val SHIZUKU_PERMISSION_REQUEST = 4317
+        private const val MIN_SHIZUKU_VERSION = 11
     }
 }
