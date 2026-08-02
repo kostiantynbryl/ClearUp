@@ -4,8 +4,9 @@
 
 - **UI:** Jetpack Compose screens and ViewModels.
 - **Domain models:** platform-neutral scan, storage and application entities.
-- **Data:** MediaStore scanner, StorageStats, DataStore, SQLite audits and cleanup executors.
+- **Data:** MediaStore scanner, StorageStats, DataStore, SharedPreferences session state, SQLite audits and cleanup executors.
 - **Privileged adapters:** Root shell and Shizuku UserService implementations kept separate from standard mode.
+- **User-assisted adapter:** a narrowly scoped AccessibilityService that operates only inside allowlisted system-settings packages.
 
 ## Scanner contract
 
@@ -16,14 +17,16 @@ Each result contains an Android content URI, display path, byte size, category, 
 - Android 11+: move selected MediaStore items into the system trash with a system confirmation dialog.
 - Android 8–10: direct ContentResolver deletion only after an in-app confirmation.
 - Privileged cleanup is not mixed into the standard executor; every operation is validated and auditable.
+- Accessibility cache cleanup is a user-driven system-settings workflow, not a background cleanup executor.
 
-## Privileged application actions
+## Application actions
 
 `AppsViewModel` selects one backend in this order:
 
 1. Root, after explicit Root detection.
 2. Shizuku/Sui, after binder, API and permission checks.
-3. Standard Android system screens.
+3. Accessibility, after a prominent disclosure, affirmative consent and enabled-service verification.
+4. Standard Android system screens.
 
 The Shizuku adapter consists of:
 
@@ -34,6 +37,24 @@ The Shizuku adapter consists of:
 - a local audit store.
 
 The remote service never receives a free-form shell command. It receives an operation identifier, a validated package name and a validated Android user ID, then builds a fixed argument list for `pm` or `am`.
+
+## Accessibility cache workflow
+
+The fallback consists of:
+
+- `AccessibilityCacheCoordinator`, which persists consent, one active request and its terminal state;
+- `AccessibilityCachePolicy`, a pure Kotlin allowlist/denylist policy covered by unit tests;
+- `ClearUpAccessibilityService`, a finite-state controller with no gesture capability;
+- `AccessibilitySetupScreen`, which presents disclosure, consent, service status and cancellation;
+- the application manager integration that starts a request for one selected app and opens its Android details page.
+
+The finite-state flow is:
+
+1. `WAITING_APP_DETAILS`
+2. `WAITING_STORAGE_PAGE`
+3. `COMPLETED`, `FAILED` or `CANCELLED`
+
+A request expires after 90 seconds. Before each click, the service confirms that the current accessibility tree belongs to an allowlisted settings package and contains the selected app's exact label or package name. It clicks only an exact storage label/resource ID or exact clear-cache label/resource ID. Clear-data and clear-storage labels are explicitly denied.
 
 ## Theme system
 
