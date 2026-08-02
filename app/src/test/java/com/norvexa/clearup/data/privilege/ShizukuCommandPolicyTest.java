@@ -24,6 +24,13 @@ public final class ShizukuCommandPolicyTest {
     }
 
     @Test
+    public void enablesCacheOnlyOnlyFromAndroid13() {
+        assertFalse(ShizukuCommandPolicy.isCacheOnlySupported(32));
+        assertTrue(ShizukuCommandPolicy.isCacheOnlySupported(33));
+        assertTrue(ShizukuCommandPolicy.isCacheOnlySupported(36));
+    }
+
+    @Test
     public void buildsCacheOnlyCommandWithoutShellInterpreter() {
         assertEquals(
                 Arrays.asList(
