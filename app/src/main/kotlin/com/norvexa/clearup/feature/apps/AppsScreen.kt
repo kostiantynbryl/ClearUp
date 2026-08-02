@@ -111,7 +111,11 @@ fun AppsScreen(
                     AppActionBackend.ROOT ->
                         "Активен Root. Расширенные действия доступны только для незащищённых пользовательских приложений."
                     AppActionBackend.SHIZUKU ->
-                        "Активен Shizuku. Команды выполняются с UID запущенного сервиса Shizuku/Sui."
+                        if (state.shizukuCacheClearSupported) {
+                            "Активен Shizuku. Доступны безопасная очистка кэша, остановка и заморозка."
+                        } else {
+                            "Активен Shizuku. На этой версии Android доступны остановка и заморозка; cache-only требует Android 13+."
+                        }
                     AppActionBackend.NONE ->
                         "Размер кэша доступен после выдачи Usage Access. Расширенный режим можно включить в разделе доступа."
                 },
@@ -194,6 +198,7 @@ fun AppsScreen(
                         AppActionsMenu(
                             app = app,
                             backend = state.actionBackend,
+                            shizukuCacheClearSupported = state.shizukuCacheClearSupported,
                             protected = protected,
                             protectionLocked = app.packageName == state.ownPackageName,
                             onOpenSettings = {
@@ -231,6 +236,7 @@ fun AppsScreen(
 private fun AppActionsMenu(
     app: InstalledApp,
     backend: AppActionBackend,
+    shizukuCacheClearSupported: Boolean,
     protected: Boolean,
     protectionLocked: Boolean,
     onOpenSettings: () -> Unit,
@@ -280,8 +286,19 @@ private fun AppActionsMenu(
                 },
             )
             if (backend != AppActionBackend.NONE && !app.isSystem && !protected) {
+                val cacheActionEnabled =
+                    backend == AppActionBackend.ROOT || shizukuCacheClearSupported
                 DropdownMenuItem(
-                    text = { Text("Очистить кэш · ${backend.label}") },
+                    text = {
+                        Text(
+                            if (cacheActionEnabled) {
+                                "Очистить кэш · ${backend.label}"
+                            } else {
+                                "Очистка кэша требует Android 13+"
+                            },
+                        )
+                    },
+                    enabled = cacheActionEnabled,
                     onClick = {
                         expanded = false
                         onAction(AppMaintenanceAction.CLEAR_CACHE)
