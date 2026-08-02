@@ -1,0 +1,32 @@
+name: Bootstrap ClearUp source
+
+on:
+  push:
+    branches:
+      - "develop/clearup-foundation"
+    paths:
+      - ".github/workflows/bootstrap-source.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  expand-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop/clearup-foundation
+          fetch-depth: 0
+      - name: Expand reviewed source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/part-* | base64 --decode > /tmp/clearup-source.tar.gz
+          tar -xzf /tmp/clearup-source.tar.gz -C .
+          git config user.name "ClearUp Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -- .gitignore README.md app build.gradle.kts docs gradle gradle.properties gradlew gradlew.bat settings.gradle.kts
+          git rm -- .bootstrap/part-*
+          git commit -m "feat: add ClearUp Android foundation [skip ci]"
+          git push origin HEAD:develop/clearup-foundation
