@@ -60,6 +60,10 @@ class AccessibilityCacheCoordinator(context: Context) :
         publish()
     }
 
+    fun close() {
+        preferences.unregisterOnSharedPreferenceChangeListener(this)
+    }
+
     fun setConsentAccepted(accepted: Boolean) {
         preferences.edit().putBoolean(KEY_CONSENT, accepted).apply()
         if (!accepted) {
