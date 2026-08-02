@@ -125,6 +125,19 @@ object AccessibilityCachePolicy {
     fun isStorageViewId(viewId: String?): Boolean =
         resourceEntry(viewId) in storageViewIds
 
+    fun matchesTarget(
+        value: CharSequence?,
+        packageName: String,
+        appLabel: String,
+    ): Boolean {
+        val normalized = normalize(value)
+        if (normalized.isBlank()) return false
+        val normalizedLabel = normalize(appLabel)
+        if (normalizedLabel.isNotBlank() && normalized == normalizedLabel) return true
+        return isValidPackageName(packageName) &&
+            normalized.contains(packageName.lowercase(Locale.ROOT))
+    }
+
     private fun normalize(value: CharSequence?): String = value
         ?.toString()
         ?.replace('\u00A0', ' ')
