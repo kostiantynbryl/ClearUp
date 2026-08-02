@@ -40,11 +40,18 @@ fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
                 when {
                     !ui.state.shizukuInstalled -> "Не установлен"
                     !ui.state.shizukuRunning -> "Установлен, но не запущен"
-                    ui.state.shizukuPermissionGranted -> "Разрешён · UID ${ui.state.shizukuUid}"
-                    else -> "Работает, требуется разрешение"
+                    ui.state.shizukuVersion != null && ui.state.shizukuVersion < 11 ->
+                        "Запущен, но API ${ui.state.shizukuVersion} не поддерживается"
+                    ui.state.shizukuPermissionGranted ->
+                        "Разрешён · API ${ui.state.shizukuVersion} · ${shizukuIdentity(ui.state.shizukuUid)}"
+                    else -> "Работает · API ${ui.state.shizukuVersion ?: "?"} · требуется разрешение"
                 },
             )
-            if (ui.state.shizukuRunning && !ui.state.shizukuPermissionGranted) {
+            if (
+                ui.state.shizukuRunning &&
+                (ui.state.shizukuVersion ?: 0) >= 11 &&
+                !ui.state.shizukuPermissionGranted
+            ) {
                 Button(
                     onClick = viewModel::requestShizuku,
                     modifier = Modifier.fillMaxWidth(),
@@ -61,10 +68,21 @@ fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
         }
         ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text(
-            "Root-команды ограничены allowlist: очистка cache/code_cache, force-stop и заморозка выбранного пакета. Пользовательские данные и системные разделы не затрагиваются.",
+            "Автоматический приоритет: Root → Shizuku → стандартный режим. Через Shizuku доступны только очистка кэша, force-stop, заморозка и разморозка выбранного пользовательского пакета.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Root-команды ограничены allowlist: cache/code_cache, force-stop, заморозка и проверяемое удаление остатков. Пользовательские данные установленных приложений и системные разделы не затрагиваются.",
             style = MaterialTheme.typography.bodySmall,
         )
     }
+}
+
+private fun shizukuIdentity(uid: Int?): String = when (uid) {
+    0 -> "Root/Sui"
+    2000 -> "ADB shell"
+    null -> "UID неизвестен"
+    else -> "UID $uid"
 }
 
 @Composable
