@@ -1,50 +1,53 @@
 # Roadmap
 
-## Foundation — implemented in source
+## First release — implemented in source
 
 - [x] Compose application shell
 - [x] Light, Dark, System and AMOLED themes
 - [x] ClearUp by NORVEXA branding
 - [x] Storage overview
 - [x] Risk-aware scanner rules
-- [x] System trash workflow
-- [x] Analyzer and application manager
+- [x] Android system trash workflow
+- [x] Storage analyzer and application manager
 - [x] Protected path and package exclusions
-- [x] Local history
+- [x] Local history and JSON export
 - [x] Exact duplicate hashing
-- [x] WorkManager scan scheduling
+- [x] WorkManager scan scheduling and notifications
 - [x] Root allowlist and guarded app actions
-- [x] Shizuku state and permission flow
+- [x] Root orphan-directory detection and audit
+- [x] Shizuku/Sui UserService operations and audit
+- [x] Consent-based Accessibility cache fallback
+- [x] Empty-directory scanner with canonical-path and symlink safeguards
 - [x] Verified GitHub Releases update flow
+- [x] Unit, lint, R8 and custom safety verification workflow
 
-## Deep cleanup
+## First release completion
+
+- [ ] Green Android CI on the release candidate
+- [ ] Final version and changelog
+- [ ] Persistent production signing key
+- [ ] Signed APK and SHA-256 asset
+- [ ] Installation and update-path verification
+- [ ] Merge to `main` and publish GitHub Release
+
+## Post-release candidates
+
+These features are intentionally excluded from the first stable release until they receive a separate device-calibration and safety cycle.
 
 - [ ] Similar-photo perceptual hashing
-- [ ] Empty-directory scanner
-- [ ] Root orphan-directory detection
-- [ ] Media quality analysis
-- [ ] Exportable scan reports
+- [ ] Blurred and dark-photo quality suggestions
 - [ ] Configurable custom scan rules
-
-## Privileged backends
-
-- [ ] Shizuku package and cache operations through a dedicated privileged service
-- [ ] Root audit-log details for every executed command
-- [ ] Accessibility fallback for OEM application-settings screens
-
-## Automation
-
-- [ ] Low-free-space trigger
+- [ ] Low-free-space automation trigger
 - [ ] Idle-device constraint
 - [ ] Notification actions
 - [ ] Optional safe-category cleanup after a separate explicit opt-in design review
 
-## Distribution
+## Distribution safeguards
 
 - [x] GitHub Releases metadata
-- [x] SHA-256 verification
-- [x] package-name and signing-certificate verification
-- [ ] signed release workflow
-- [ ] changelog generation
-- [ ] rollback guidance
-- [ ] no release until the first complete test cycle
+- [x] Mandatory SHA-256 verification
+- [x] Package-name and signing-certificate verification
+- [ ] Signed release workflow using the same protected key for every update
+- [ ] Changelog generation
+- [ ] Rollback guidance
+- [ ] No public release before the complete verification cycle passes
