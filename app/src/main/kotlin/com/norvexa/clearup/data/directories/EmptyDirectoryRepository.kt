@@ -29,6 +29,7 @@ class EmptyDirectoryRepository(context: Context) {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    @Suppress("DEPRECATION")
     suspend fun scan(minAgeDays: Int = DEFAULT_MIN_AGE_DAYS): List<EmptyDirectory> =
         withContext(Dispatchers.IO) {
             check(hasRequiredAccess()) {
@@ -38,7 +39,8 @@ class EmptyDirectoryRepository(context: Context) {
             val externalRoot = Environment.getExternalStorageDirectory()
             val externalCanonical = EmptyDirectoryPolicy.canonicalOrNull(externalRoot)
                 ?: error("Не удалось определить корень общего накопителя")
-            val roots = publicRoots()
+            val publicRoots = publicRoots()
+            val roots = publicRoots
                 .mapNotNull { root ->
                     if (!root.exists() || !root.isDirectory || isSymbolicLink(root)) {
                         null
@@ -54,7 +56,7 @@ class EmptyDirectoryRepository(context: Context) {
                 TimeUnit.DAYS.toMillis(minAgeDays.coerceIn(1, 365).toLong())
             val result = mutableListOf<EmptyDirectory>()
             val stack = ArrayDeque<File>()
-            publicRoots().forEach { root ->
+            publicRoots.forEach { root ->
                 if (
                     root.exists() &&
                     root.isDirectory &&
@@ -91,7 +93,7 @@ class EmptyDirectoryRepository(context: Context) {
                 val depth = EmptyDirectoryPolicy.depthFromRoot(canonical, roots) ?: continue
                 if (
                     children.isEmpty() &&
-                    directory.lastModified() in 1..cutoff &&
+                    directory.lastModified() in 1L..cutoff &&
                     EmptyDirectoryPolicy.isAllowedCandidate(
                         candidateCanonicalPath = canonical,
                         rootCanonicalPaths = roots,
@@ -115,6 +117,7 @@ class EmptyDirectoryRepository(context: Context) {
                 )
         }
 
+    @Suppress("DEPRECATION")
     suspend fun deleteSelected(
         selected: Collection<EmptyDirectory>,
     ): EmptyDirectoryDeleteResult = withContext(Dispatchers.IO) {
