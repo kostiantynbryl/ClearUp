@@ -17,8 +17,6 @@ data class ShellResult(
 class RootShell(
     private val auditStore: RootAuditStore? = null,
 ) {
-    private val packagePattern = Regex("^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$")
-
     suspend fun isAvailable(): Boolean = execute(
         action = "CHECK_ROOT",
         target = "su",
@@ -66,7 +64,7 @@ class RootShell(
 
     suspend fun listPackageDirectories(): ShellResult {
         val command = """
-            for base in ${ALLOWED_ORPHAN_ROOTS.joinToString(" ")}; do
+            for base in ${RootOrphanPolicy.allowedRoots.joinToString(" ")}; do
                 [ -d "${'$'}base" ] || continue
                 for directory in "${'$'}base"/*; do
                     [ -d "${'$'}directory" ] || continue
@@ -85,7 +83,7 @@ class RootShell(
         """.trimIndent()
         return execute(
             action = "SCAN_ORPHAN_DIRECTORIES",
-            target = ALLOWED_ORPHAN_ROOTS.joinToString(","),
+            target = RootOrphanPolicy.allowedRoots.joinToString(","),
             command = command,
             timeoutSeconds = 120,
         )
@@ -96,7 +94,9 @@ class RootShell(
         path: String,
     ): ShellResult {
         requireValidPackage(packageName)
-        require(path in allowedPathsFor(packageName)) { "Directory is outside the orphan allowlist" }
+        require(RootOrphanPolicy.isAllowedPath(packageName, path)) {
+            "Directory is outside the orphan allowlist"
+        }
         val command = """
             if pm path '$packageName' >/dev/null 2>&1; then
                 printf 'Package is installed' >&2
@@ -114,11 +114,8 @@ class RootShell(
         )
     }
 
-    private fun allowedPathsFor(packageName: String): Set<String> =
-        ALLOWED_ORPHAN_ROOTS.mapTo(linkedSetOf()) { root -> "$root/$packageName" }
-
     private fun requireValidPackage(packageName: String) {
-        require(packagePattern.matches(packageName)) { "Invalid package name" }
+        require(RootOrphanPolicy.isValidPackageName(packageName)) { "Invalid package name" }
     }
 
     private suspend fun execute(
@@ -157,15 +154,5 @@ class RootShell(
             auditStore?.record(action = action, target = target, result = result)
         }
         result
-    }
-
-    companion object {
-        private val ALLOWED_ORPHAN_ROOTS = listOf(
-            "/data/user/0",
-            "/data/data",
-            "/storage/emulated/0/Android/data",
-            "/storage/emulated/0/Android/media",
-            "/storage/emulated/0/Android/obb",
-        )
     }
 }
