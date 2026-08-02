@@ -27,10 +27,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.norvexa.clearup.data.accessibility.AccessibilityCacheCoordinator
 import com.norvexa.clearup.data.accessibility.AccessibilityCacheStage
@@ -181,7 +181,7 @@ fun AccessibilitySetupScreen(coordinator: AccessibilityCacheCoordinator) {
                         )
                         if (session.active) {
                             OutlinedButton(
-                                onClick = coordinator::cancel,
+                                onClick = { coordinator.cancel() },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text("Отменить текущий запрос")
