@@ -46,13 +46,15 @@ class ShizukuCommandClient(
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
-            synchronized(connectionLock) {
-                service = null
-                pendingConnection?.completeExceptionally(
-                    IllegalStateException("Shizuku UserService disconnected"),
-                )
-                pendingConnection = null
-            }
+            failPendingConnection("Shizuku UserService disconnected")
+        }
+
+        override fun onBindingDied(name: ComponentName) {
+            failPendingConnection("Shizuku UserService binding died")
+        }
+
+        override fun onNullBinding(name: ComponentName) {
+            failPendingConnection("Shizuku UserService returned a null binding")
         }
     }
 
@@ -63,17 +65,21 @@ class ShizukuCommandClient(
     }.getOrDefault(false)
 
     suspend fun clearCache(packageName: String): ShellResult = execute(
-        operation = CLEAR_CACHE,
+        operation = ShizukuCommandPolicy.CLEAR_CACHE,
         packageName = packageName,
     )
 
     suspend fun forceStop(packageName: String): ShellResult = execute(
-        operation = FORCE_STOP,
+        operation = ShizukuCommandPolicy.FORCE_STOP,
         packageName = packageName,
     )
 
     suspend fun setFrozen(packageName: String, frozen: Boolean): ShellResult = execute(
-        operation = if (frozen) FREEZE else UNFREEZE,
+        operation = if (frozen) {
+            ShizukuCommandPolicy.FREEZE
+        } else {
+            ShizukuCommandPolicy.UNFREEZE
+        },
         packageName = packageName,
     )
 
@@ -81,7 +87,7 @@ class ShizukuCommandClient(
         operation: String,
         packageName: String,
     ): ShellResult = withContext(Dispatchers.IO) {
-        require(RootOrphanPolicy.isValidPackageName(packageName)) {
+        require(ShizukuCommandPolicy.isValidPackageName(packageName)) {
             "Invalid package name"
         }
         if (!isReady()) {
@@ -159,6 +165,14 @@ class ShizukuCommandClient(
         }
     }
 
+    private fun failPendingConnection(message: String) {
+        synchronized(connectionLock) {
+            service = null
+            pendingConnection?.completeExceptionally(IllegalStateException(message))
+            pendingConnection = null
+        }
+    }
+
     private fun parseResponse(response: Array<String>?): ShellResult {
         if (response == null || response.size < 3) {
             return ShellResult(-1, "", "Некорректный ответ Shizuku UserService")
@@ -172,9 +186,5 @@ class ShizukuCommandClient(
 
     companion object {
         private const val CONNECTION_TIMEOUT_MS = 10_000L
-        private const val CLEAR_CACHE = "CLEAR_CACHE"
-        private const val FORCE_STOP = "FORCE_STOP"
-        private const val FREEZE = "FREEZE"
-        private const val UNFREEZE = "UNFREEZE"
     }
 }
