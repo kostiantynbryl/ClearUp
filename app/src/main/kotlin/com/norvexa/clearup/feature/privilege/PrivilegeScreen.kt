@@ -36,10 +36,11 @@ fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
             StatusCard("Текущий режим", ui.state.bestMode.name)
             StatusCard("Root", if (ui.state.rootAvailable) "Доступен" else "Не найден")
             StatusCard(
-                "Shizuku",
+                "Shizuku / Sui",
                 when {
-                    !ui.state.shizukuInstalled -> "Не установлен"
-                    !ui.state.shizukuRunning -> "Установлен, но не запущен"
+                    !ui.state.shizukuRunning && !ui.state.shizukuInstalled ->
+                        "Shizuku не установлен, активный Sui не найден"
+                    !ui.state.shizukuRunning -> "Shizuku установлен, но не запущен"
                     ui.state.shizukuVersion != null && ui.state.shizukuVersion < 11 ->
                         "Запущен, но API ${ui.state.shizukuVersion} не поддерживается"
                     ui.state.shizukuPermissionGranted ->
@@ -56,7 +57,7 @@ fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
                     onClick = viewModel::requestShizuku,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Разрешить Shizuku")
+                    Text("Разрешить Shizuku / Sui")
                 }
             }
             OutlinedButton(
@@ -68,7 +69,7 @@ fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
         }
         ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text(
-            "Автоматический приоритет: Root → Shizuku → стандартный режим. Через Shizuku доступны только очистка кэша, force-stop, заморозка и разморозка выбранного пользовательского пакета.",
+            "Автоматический приоритет: Root → Shizuku/Sui → стандартный режим. Через Shizuku доступны force-stop и заморозка; безопасная cache-only очистка включается только на Android 13+.",
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
