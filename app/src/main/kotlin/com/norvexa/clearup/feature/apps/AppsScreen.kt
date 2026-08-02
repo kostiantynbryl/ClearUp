@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,7 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.norvexa.clearup.core.util.ByteFormatter
 import com.norvexa.clearup.domain.model.InstalledApp
@@ -50,13 +54,38 @@ private data class PendingAppAction(
 fun AppsScreen(
     viewModel: AppsViewModel,
     includeSystemApps: Boolean,
+    onAccessibilitySetup: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var pendingAction by remember { mutableStateOf<PendingAppAction?>(null) }
 
     LaunchedEffect(includeSystemApps) {
         viewModel.load(includeSystemApps)
+    }
+
+    LaunchedEffect(state.accessibilityLaunchPackage) {
+        val packageName = state.accessibilityLaunchPackage ?: return@LaunchedEffect
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                ),
+            )
+        }
+        viewModel.consumeAccessibilityLaunch()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshAccessibilityState()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     pendingAction?.let { pending ->
@@ -67,7 +96,7 @@ fun AppsScreen(
                 Text(
                     "${pending.app.label}\n${pending.app.packageName}\n" +
                         "Режим: ${state.actionBackend.label}\n\n" +
-                        actionDescription(pending.action),
+                        actionDescription(pending.action, state.actionBackend),
                 )
             },
             confirmButton = {
@@ -116,8 +145,10 @@ fun AppsScreen(
                         } else {
                             "Активен Shizuku. На этой версии Android доступны остановка и заморозка; cache-only требует Android 13+."
                         }
+                    AppActionBackend.ACCESSIBILITY ->
+                        "Активен Accessibility-помощник. Он работает только после вашего запроса и нажимает системную кнопку «Очистить кэш»."
                     AppActionBackend.NONE ->
-                        "Размер кэша доступен после выдачи Usage Access. Расширенный режим можно включить в разделе доступа."
+                        "Размер кэша доступен после выдачи Usage Access. Для очистки без Root можно настроить Accessibility-помощник."
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -220,6 +251,7 @@ fun AppsScreen(
                             onSetProtected = { enabled ->
                                 viewModel.setProtected(app.packageName, enabled)
                             },
+                            onAccessibilitySetup = onAccessibilitySetup,
                             onAction = { action ->
                                 pendingAction = PendingAppAction(app, action)
                             },
@@ -242,6 +274,7 @@ private fun AppActionsMenu(
     onOpenSettings: () -> Unit,
     onUninstall: () -> Unit,
     onSetProtected: (Boolean) -> Unit,
+    onAccessibilitySetup: () -> Unit,
     onAction: (AppMaintenanceAction) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -285,7 +318,32 @@ private fun AppActionsMenu(
                     onSetProtected(!protected)
                 },
             )
-            if (backend != AppActionBackend.NONE && !app.isSystem && !protected) {
+
+            if (backend == AppActionBackend.NONE && !app.isSystem && !protected) {
+                DropdownMenuItem(
+                    text = { Text("Настроить Accessibility-помощник") },
+                    onClick = {
+                        expanded = false
+                        onAccessibilitySetup()
+                    },
+                )
+            }
+
+            if (backend == AppActionBackend.ACCESSIBILITY && !app.isSystem && !protected) {
+                DropdownMenuItem(
+                    text = { Text("Очистить кэш · Accessibility") },
+                    onClick = {
+                        expanded = false
+                        onAction(AppMaintenanceAction.CLEAR_CACHE)
+                    },
+                )
+            }
+
+            if (
+                (backend == AppActionBackend.ROOT || backend == AppActionBackend.SHIZUKU) &&
+                !app.isSystem &&
+                !protected
+            ) {
                 val cacheActionEnabled =
                     backend == AppActionBackend.ROOT || shizukuCacheClearSupported
                 DropdownMenuItem(
@@ -344,9 +402,16 @@ private fun actionTitle(action: AppMaintenanceAction): String = when (action) {
     AppMaintenanceAction.UNFREEZE -> "Разморозить приложение?"
 }
 
-private fun actionDescription(action: AppMaintenanceAction): String = when (action) {
+private fun actionDescription(
+    action: AppMaintenanceAction,
+    backend: AppActionBackend,
+): String = when (action) {
     AppMaintenanceAction.CLEAR_CACHE ->
-        "Будет очищен только кэш пакета. Пользовательские данные и настройки останутся на месте."
+        if (backend == AppActionBackend.ACCESSIBILITY) {
+            "Откроется системная карточка приложения. ClearUp найдёт и нажмёт только точную кнопку «Очистить кэш». Запрос действует 90 секунд."
+        } else {
+            "Будет очищен только кэш пакета. Пользовательские данные и настройки останутся на месте."
+        }
     AppMaintenanceAction.FORCE_STOP ->
         "Приложение перестанет работать до следующего ручного запуска или системного события."
     AppMaintenanceAction.FREEZE ->
