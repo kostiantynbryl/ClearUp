@@ -8,6 +8,7 @@ import com.norvexa.clearup.data.exclusions.ExclusionRepository
 import com.norvexa.clearup.data.history.HistoryStore
 import com.norvexa.clearup.data.privilege.PrivilegeManager
 import com.norvexa.clearup.data.privilege.RootShell
+import com.norvexa.clearup.data.privilege.ShizukuCommandClient
 import com.norvexa.clearup.domain.model.HistoryType
 import com.norvexa.clearup.domain.model.InstalledApp
 import kotlinx.coroutines.async
@@ -18,6 +19,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+enum class AppActionBackend(val label: String) {
+    NONE("Стандартный режим"),
+    SHIZUKU("Shizuku"),
+    ROOT("Root"),
+}
+
 data class AppsUiState(
     val loading: Boolean = true,
     val query: String = "",
@@ -25,6 +32,7 @@ data class AppsUiState(
     val includeSystemApps: Boolean = false,
     val ownPackageName: String = "",
     val rootAvailable: Boolean = false,
+    val shizukuAvailable: Boolean = false,
     val protectedPackages: Set<String> = emptySet(),
     val busyPackage: String? = null,
     val message: String? = null,
@@ -39,9 +47,16 @@ data class AppsUiState(
                     app.packageName.contains(query, ignoreCase = true)
             }
         }
+
+    val actionBackend: AppActionBackend
+        get() = when {
+            rootAvailable -> AppActionBackend.ROOT
+            shizukuAvailable -> AppActionBackend.SHIZUKU
+            else -> AppActionBackend.NONE
+        }
 }
 
-enum class RootAppAction {
+enum class AppMaintenanceAction {
     CLEAR_CACHE,
     FORCE_STOP,
     FREEZE,
@@ -52,6 +67,7 @@ class AppsViewModel(
     private val repository: AndroidAppRepository,
     private val privilegeManager: PrivilegeManager,
     private val rootShell: RootShell,
+    private val shizukuClient: ShizukuCommandClient,
     private val exclusions: ExclusionRepository,
     private val history: HistoryStore,
     private val ownPackageName: String,
@@ -81,6 +97,9 @@ class AppsViewModel(
                         loading = false,
                         allApps = apps,
                         rootAvailable = privilege.rootAvailable,
+                        shizukuAvailable = privilege.shizukuRunning &&
+                            privilege.shizukuPermissionGranted &&
+                            shizukuClient.isReady(),
                         protectedPackages = protected + ownPackageName,
                     )
                 }
@@ -121,10 +140,11 @@ class AppsViewModel(
         }
     }
 
-    fun executeRootAction(app: InstalledApp, action: RootAppAction) {
+    fun executeAction(app: InstalledApp, action: AppMaintenanceAction) {
         val current = _state.value
+        val backend = current.actionBackend
         if (
-            !current.rootAvailable ||
+            backend == AppActionBackend.NONE ||
             app.isSystem ||
             app.packageName in current.protectedPackages ||
             current.busyPackage != null
@@ -140,25 +160,38 @@ class AppsViewModel(
                     error = null,
                 )
             }
-            val result = when (action) {
-                RootAppAction.CLEAR_CACHE -> rootShell.clearCache(app.packageName)
-                RootAppAction.FORCE_STOP -> rootShell.forceStop(app.packageName)
-                RootAppAction.FREEZE -> rootShell.setFrozen(app.packageName, frozen = true)
-                RootAppAction.UNFREEZE -> rootShell.setFrozen(app.packageName, frozen = false)
+            val result = when (backend) {
+                AppActionBackend.ROOT -> when (action) {
+                    AppMaintenanceAction.CLEAR_CACHE -> rootShell.clearCache(app.packageName)
+                    AppMaintenanceAction.FORCE_STOP -> rootShell.forceStop(app.packageName)
+                    AppMaintenanceAction.FREEZE -> rootShell.setFrozen(app.packageName, frozen = true)
+                    AppMaintenanceAction.UNFREEZE -> rootShell.setFrozen(app.packageName, frozen = false)
+                }
+                AppActionBackend.SHIZUKU -> when (action) {
+                    AppMaintenanceAction.CLEAR_CACHE -> shizukuClient.clearCache(app.packageName)
+                    AppMaintenanceAction.FORCE_STOP -> shizukuClient.forceStop(app.packageName)
+                    AppMaintenanceAction.FREEZE -> shizukuClient.setFrozen(app.packageName, frozen = true)
+                    AppMaintenanceAction.UNFREEZE -> shizukuClient.setFrozen(app.packageName, frozen = false)
+                }
+                AppActionBackend.NONE -> return@launch
             }
             if (result.success) {
                 history.record(
                     type = HistoryType.APP_ACTION,
                     itemCount = 1,
-                    bytes = if (action == RootAppAction.CLEAR_CACHE) app.cacheBytes ?: 0 else 0,
-                    note = "${action.name}: ${app.packageName}",
+                    bytes = if (action == AppMaintenanceAction.CLEAR_CACHE) {
+                        app.cacheBytes ?: 0
+                    } else {
+                        0
+                    },
+                    note = "${backend.name}:${action.name}: ${app.packageName}",
                 )
                 val refreshedApps = repository.loadApps(current.includeSystemApps)
                 _state.update {
                     it.copy(
                         busyPackage = null,
                         allApps = refreshedApps,
-                        message = rootActionSuccessMessage(action),
+                        message = actionSuccessMessage(action, backend),
                     )
                 }
             } else {
@@ -166,7 +199,9 @@ class AppsViewModel(
                     it.copy(
                         busyPackage = null,
                         error = result.error.ifBlank {
-                            result.output.ifBlank { "Root-команда завершилась с ошибкой" }
+                            result.output.ifBlank {
+                                "Операция ${backend.label} завершилась с ошибкой"
+                            }
                         },
                     )
                 }
@@ -174,17 +209,24 @@ class AppsViewModel(
         }
     }
 
-    private fun rootActionSuccessMessage(action: RootAppAction): String = when (action) {
-        RootAppAction.CLEAR_CACHE -> "Кэш приложения очищен"
-        RootAppAction.FORCE_STOP -> "Приложение остановлено"
-        RootAppAction.FREEZE -> "Приложение заморожено"
-        RootAppAction.UNFREEZE -> "Приложение разморожено"
+    private fun actionSuccessMessage(
+        action: AppMaintenanceAction,
+        backend: AppActionBackend,
+    ): String {
+        val message = when (action) {
+            AppMaintenanceAction.CLEAR_CACHE -> "Кэш приложения очищен"
+            AppMaintenanceAction.FORCE_STOP -> "Приложение остановлено"
+            AppMaintenanceAction.FREEZE -> "Приложение заморожено"
+            AppMaintenanceAction.UNFREEZE -> "Приложение разморожено"
+        }
+        return "$message · ${backend.label}"
     }
 
     class Factory(
         private val repository: AndroidAppRepository,
         private val privilegeManager: PrivilegeManager,
         private val rootShell: RootShell,
+        private val shizukuClient: ShizukuCommandClient,
         private val exclusions: ExclusionRepository,
         private val history: HistoryStore,
         private val ownPackageName: String,
@@ -194,6 +236,7 @@ class AppsViewModel(
             repository = repository,
             privilegeManager = privilegeManager,
             rootShell = rootShell,
+            shizukuClient = shizukuClient,
             exclusions = exclusions,
             history = history,
             ownPackageName = ownPackageName,
