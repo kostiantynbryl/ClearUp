@@ -33,6 +33,7 @@ fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
         if (ui.loading) {
             CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         } else {
+            val shizukuVersion = ui.state.shizukuVersion
             StatusCard("Текущий режим", ui.state.bestMode.name)
             StatusCard("Root", if (ui.state.rootAvailable) "Доступен" else "Не найден")
             StatusCard(
@@ -41,16 +42,16 @@ fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
                     !ui.state.shizukuRunning && !ui.state.shizukuInstalled ->
                         "Shizuku не установлен, активный Sui не найден"
                     !ui.state.shizukuRunning -> "Shizuku установлен, но не запущен"
-                    ui.state.shizukuVersion != null && ui.state.shizukuVersion < 11 ->
-                        "Запущен, но API ${ui.state.shizukuVersion} не поддерживается"
+                    shizukuVersion != null && shizukuVersion < 11 ->
+                        "Запущен, но API $shizukuVersion не поддерживается"
                     ui.state.shizukuPermissionGranted ->
-                        "Разрешён · API ${ui.state.shizukuVersion} · ${shizukuIdentity(ui.state.shizukuUid)}"
-                    else -> "Работает · API ${ui.state.shizukuVersion ?: "?"} · требуется разрешение"
+                        "Разрешён · API ${shizukuVersion ?: "?"} · ${shizukuIdentity(ui.state.shizukuUid)}"
+                    else -> "Работает · API ${shizukuVersion ?: "?"} · требуется разрешение"
                 },
             )
             if (
                 ui.state.shizukuRunning &&
-                (ui.state.shizukuVersion ?: 0) >= 11 &&
+                (shizukuVersion ?: 0) >= 11 &&
                 !ui.state.shizukuPermissionGranted
             ) {
                 Button(
