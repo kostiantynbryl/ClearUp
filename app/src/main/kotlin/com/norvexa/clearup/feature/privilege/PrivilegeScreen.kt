@@ -1,0 +1,98 @@
+package com.norvexa.clearup.feature.privilege
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun PrivilegeScreen(viewModel: PrivilegeViewModel) {
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
+    Column(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Расширенный доступ", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "ClearUp работает без привилегий. Root и Shizuku включают дополнительные операции только после явного разрешения.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (ui.loading) {
+            CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+        } else {
+            val shizukuVersion = ui.state.shizukuVersion
+            StatusCard("Текущий режим", ui.state.bestMode.name)
+            StatusCard("Root", if (ui.state.rootAvailable) "Доступен" else "Не найден")
+            StatusCard(
+                "Shizuku / Sui",
+                when {
+                    !ui.state.shizukuRunning && !ui.state.shizukuInstalled ->
+                        "Shizuku не установлен, активный Sui не найден"
+                    !ui.state.shizukuRunning -> "Shizuku установлен, но не запущен"
+                    shizukuVersion != null && shizukuVersion < 11 ->
+                        "Запущен, но API $shizukuVersion не поддерживается"
+                    ui.state.shizukuPermissionGranted ->
+                        "Разрешён · API ${shizukuVersion ?: "?"} · ${shizukuIdentity(ui.state.shizukuUid)}"
+                    else -> "Работает · API ${shizukuVersion ?: "?"} · требуется разрешение"
+                },
+            )
+            if (
+                ui.state.shizukuRunning &&
+                (shizukuVersion ?: 0) >= 11 &&
+                !ui.state.shizukuPermissionGranted
+            ) {
+                Button(
+                    onClick = viewModel::requestShizuku,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Разрешить Shizuku / Sui")
+                }
+            }
+            OutlinedButton(
+                onClick = viewModel::refresh,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Обновить статус")
+            }
+        }
+        ui.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Text(
+            "Автоматический приоритет: Root → Shizuku/Sui → стандартный режим. Через Shizuku доступны force-stop и заморозка; безопасная cache-only очистка включается только на Android 13+.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Root-команды ограничены allowlist: cache/code_cache, force-stop, заморозка и проверяемое удаление остатков. Пользовательские данные установленных приложений и системные разделы не затрагиваются.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+private fun shizukuIdentity(uid: Int?): String = when (uid) {
+    0 -> "Root/Sui"
+    2000 -> "ADB shell"
+    null -> "UID неизвестен"
+    else -> "UID $uid"
+}
+
+@Composable
+private fun StatusCard(title: String, value: String) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(value)
+        }
+    }
+}
