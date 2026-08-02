@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.FolderDelete
 import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Security
@@ -27,6 +28,7 @@ fun ToolsScreen(
     onExclusions: () -> Unit,
     onHistory: () -> Unit,
     onPrivileges: () -> Unit,
+    onRootMaintenance: () -> Unit,
     onUpdate: () -> Unit,
 ) {
     LazyColumn(
@@ -71,6 +73,14 @@ fun ToolsScreen(
                 body = "Последние сканирования и очистки",
                 icon = Icons.Outlined.History,
                 modifier = Modifier.clickable(onClick = onHistory),
+            )
+        }
+        item {
+            InfoCard(
+                title = "Root-обслуживание",
+                body = "Остатки удалённых приложений и локальный аудит Root-команд",
+                icon = Icons.Outlined.FolderDelete,
+                modifier = Modifier.clickable(onClick = onRootMaintenance),
             )
         }
         item {
