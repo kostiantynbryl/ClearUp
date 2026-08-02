@@ -8,6 +8,7 @@ import android.os.Environment
 import androidx.core.content.ContextCompat
 import com.norvexa.clearup.domain.model.EmptyDirectory
 import com.norvexa.clearup.domain.model.EmptyDirectoryDeleteResult
+import com.norvexa.clearup.domain.model.EmptyDirectoryScanResult
 import java.io.File
 import java.nio.file.Files
 import java.util.ArrayDeque
@@ -30,7 +31,7 @@ class EmptyDirectoryRepository(context: Context) {
     }
 
     @Suppress("DEPRECATION")
-    suspend fun scan(minAgeDays: Int = DEFAULT_MIN_AGE_DAYS): List<EmptyDirectory> =
+    suspend fun scan(minAgeDays: Int = DEFAULT_MIN_AGE_DAYS): EmptyDirectoryScanResult =
         withContext(Dispatchers.IO) {
             check(hasRequiredAccess()) {
                 "Нет доступа для проверки публичных каталогов"
@@ -50,7 +51,13 @@ class EmptyDirectoryRepository(context: Context) {
                 }
                 .toSet()
 
-            if (roots.isEmpty()) return@withContext emptyList()
+            if (roots.isEmpty()) {
+                return@withContext EmptyDirectoryScanResult(
+                    directories = emptyList(),
+                    visitedDirectories = 0,
+                    limitReached = false,
+                )
+            }
 
             val cutoff = System.currentTimeMillis() -
                 TimeUnit.DAYS.toMillis(minAgeDays.coerceIn(1, 365).toLong())
@@ -109,12 +116,16 @@ class EmptyDirectoryRepository(context: Context) {
                 }
             }
 
-            result
-                .distinctBy(EmptyDirectory::canonicalPath)
-                .sortedWith(
-                    compareByDescending<EmptyDirectory> { it.depth }
-                        .thenBy { it.canonicalPath.lowercase() },
-                )
+            EmptyDirectoryScanResult(
+                directories = result
+                    .distinctBy(EmptyDirectory::canonicalPath)
+                    .sortedWith(
+                        compareByDescending<EmptyDirectory> { it.depth }
+                            .thenBy { it.canonicalPath.lowercase() },
+                    ),
+                visitedDirectories = visited,
+                limitReached = stack.isNotEmpty(),
+            )
         }
 
     @Suppress("DEPRECATION")
@@ -185,7 +196,7 @@ class EmptyDirectoryRepository(context: Context) {
 
     companion object {
         const val DEFAULT_MIN_AGE_DAYS = 14
-        private const val MAX_VISITED_DIRECTORIES = 50_000
+        const val MAX_VISITED_DIRECTORIES = 50_000
         private const val MAX_REPORTED_FAILURES = 20
 
         private val PUBLIC_DIRECTORY_NAMES = listOf(
