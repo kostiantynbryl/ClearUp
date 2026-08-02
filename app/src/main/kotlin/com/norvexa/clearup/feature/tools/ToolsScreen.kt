@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.FolderDelete
 import androidx.compose.material.icons.outlined.FolderOff
@@ -28,6 +29,7 @@ fun ToolsScreen(
     onExclusions: () -> Unit,
     onHistory: () -> Unit,
     onPrivileges: () -> Unit,
+    onAccessibility: () -> Unit,
     onRootMaintenance: () -> Unit,
     onUpdate: () -> Unit,
 ) {
@@ -73,6 +75,14 @@ fun ToolsScreen(
                 body = "Последние сканирования и очистки",
                 icon = Icons.Outlined.History,
                 modifier = Modifier.clickable(onClick = onHistory),
+            )
+        }
+        item {
+            InfoCard(
+                title = "Accessibility-помощник",
+                body = "Очистка кэша через системный экран без Root и Shizuku",
+                icon = Icons.Outlined.AccessibilityNew,
+                modifier = Modifier.clickable(onClick = onAccessibility),
             )
         }
         item {
