@@ -9,6 +9,7 @@ final class ShizukuCommandPolicy {
     static final String FORCE_STOP = "FORCE_STOP";
     static final String FREEZE = "FREEZE";
     static final String UNFREEZE = "UNFREEZE";
+    static final int MIN_SAFE_CACHE_CLEAR_SDK = 33;
 
     private static final Pattern PACKAGE_PATTERN = Pattern.compile(
             "^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$"
@@ -23,6 +24,10 @@ final class ShizukuCommandPolicy {
 
     static boolean isValidUserId(int userId) {
         return userId >= 0 && userId <= 999;
+    }
+
+    static boolean isCacheOnlySupported(int sdkInt) {
+        return sdkInt >= MIN_SAFE_CACHE_CLEAR_SDK;
     }
 
     static List<String> commandFor(String operation, String packageName, int userId) {
