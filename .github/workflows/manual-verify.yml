@@ -23,6 +23,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Accessibility safety guard
         run: python3 scripts/verify_accessibility_safety.py
+      - name: Storage safety guard
+        run: python3 scripts/verify_storage_safety.py
       - name: Unit tests and Android lint
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug --stacktrace
       - name: Analyze release R8 configuration
