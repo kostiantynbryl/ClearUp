@@ -156,6 +156,17 @@ class AppsViewModel(
         _state.update { it.copy(accessibilityLaunchPackage = null) }
     }
 
+    fun accessibilityLaunchFailed(message: String) {
+        accessibilityCoordinator.cancel(message)
+        _state.update {
+            it.copy(
+                accessibilityLaunchPackage = null,
+                busyPackage = null,
+                error = message,
+            )
+        }
+    }
+
     fun setQuery(query: String) {
         _state.update { it.copy(query = query) }
     }
@@ -289,50 +300,60 @@ class AppsViewModel(
     private suspend fun handleAccessibilityResult(session: AccessibilityCacheSession?) {
         if (session == null || session.active || session.historyRecorded) return
 
-        when (session.stage) {
-            AccessibilityCacheStage.COMPLETED -> {
-                history.record(
-                    type = HistoryType.APP_ACTION,
-                    itemCount = 1,
-                    bytes = session.estimatedBytes,
-                    note = "ACCESSIBILITY:CLEAR_CACHE: ${session.packageName}",
+        try {
+            when (session.stage) {
+                AccessibilityCacheStage.COMPLETED -> {
+                    history.record(
+                        type = HistoryType.APP_ACTION,
+                        itemCount = 1,
+                        bytes = session.estimatedBytes,
+                        note = "ACCESSIBILITY:CLEAR_CACHE_CLICKED: ${session.packageName}",
+                    )
+                    val current = _state.value
+                    val refreshedApps = if (current.allApps.isEmpty()) {
+                        current.allApps
+                    } else {
+                        repository.loadApps(current.includeSystemApps)
+                    }
+                    _state.update {
+                        it.copy(
+                            busyPackage = null,
+                            allApps = refreshedApps,
+                            message = "Системная команда очистки кэша выполнена · Accessibility",
+                            error = null,
+                        )
+                    }
+                }
+                AccessibilityCacheStage.FAILED -> {
+                    _state.update {
+                        it.copy(
+                            busyPackage = null,
+                            error = session.message,
+                        )
+                    }
+                }
+                AccessibilityCacheStage.CANCELLED -> {
+                    _state.update {
+                        it.copy(
+                            busyPackage = null,
+                            message = session.message,
+                        )
+                    }
+                }
+                AccessibilityCacheStage.WAITING_APP_DETAILS,
+                AccessibilityCacheStage.WAITING_STORAGE_PAGE,
+                -> Unit
+            }
+        } catch (error: Throwable) {
+            _state.update {
+                it.copy(
+                    busyPackage = null,
+                    error = error.message ?: "Не удалось обработать результат Accessibility",
                 )
-                val current = _state.value
-                val refreshedApps = if (current.allApps.isEmpty()) {
-                    current.allApps
-                } else {
-                    repository.loadApps(current.includeSystemApps)
-                }
-                _state.update {
-                    it.copy(
-                        busyPackage = null,
-                        allApps = refreshedApps,
-                        message = "Кэш приложения очищен · Accessibility",
-                        error = null,
-                    )
-                }
             }
-            AccessibilityCacheStage.FAILED -> {
-                _state.update {
-                    it.copy(
-                        busyPackage = null,
-                        error = session.message,
-                    )
-                }
-            }
-            AccessibilityCacheStage.CANCELLED -> {
-                _state.update {
-                    it.copy(
-                        busyPackage = null,
-                        message = session.message,
-                    )
-                }
-            }
-            AccessibilityCacheStage.WAITING_APP_DETAILS,
-            AccessibilityCacheStage.WAITING_STORAGE_PAGE,
-            -> Unit
+        } finally {
+            accessibilityCoordinator.markHistoryRecorded(session.id)
         }
-        accessibilityCoordinator.markHistoryRecorded(session.id)
     }
 
     private fun actionSuccessMessage(
