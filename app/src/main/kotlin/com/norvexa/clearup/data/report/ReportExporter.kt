@@ -7,10 +7,10 @@ import androidx.core.content.FileProvider
 import com.norvexa.clearup.domain.model.HistoryEntry
 import java.io.File
 import java.time.Instant
-import org.json.JSONArray
-import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 class ReportExporter(context: Context) {
     private val appContext = context.applicationContext
@@ -84,7 +84,7 @@ class ReportExporter(context: Context) {
             }
             ?.sortedByDescending(File::lastModified)
             ?.drop(MAX_RETAINED_REPORTS - 1)
-            ?.forEach(File::delete)
+            ?.forEach { file -> file.delete() }
     }
 
     companion object {
