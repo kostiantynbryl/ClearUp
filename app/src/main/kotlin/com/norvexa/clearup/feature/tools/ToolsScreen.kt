@@ -11,6 +11,7 @@ import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.FolderDelete
 import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Storage
@@ -26,6 +27,7 @@ import com.norvexa.clearup.core.designsystem.InfoCard
 fun ToolsScreen(
     onAnalyzer: () -> Unit,
     onDuplicates: () -> Unit,
+    onEmptyDirectories: () -> Unit,
     onExclusions: () -> Unit,
     onHistory: () -> Unit,
     onPrivileges: () -> Unit,
@@ -63,6 +65,14 @@ fun ToolsScreen(
         }
         item {
             InfoCard(
+                title = "Пустые каталоги",
+                body = "Публичные папки старше выбранного возраста, без автоматического выбора",
+                icon = Icons.Outlined.FolderOpen,
+                modifier = Modifier.clickable(onClick = onEmptyDirectories),
+            )
+        }
+        item {
+            InfoCard(
                 title = "Исключения",
                 body = "Защищённые пути и приложения",
                 icon = Icons.Outlined.FolderOff,
@@ -72,7 +82,7 @@ fun ToolsScreen(
         item {
             InfoCard(
                 title = "История",
-                body = "Последние сканирования и очистки",
+                body = "Последние события и экспорт JSON",
                 icon = Icons.Outlined.History,
                 modifier = Modifier.clickable(onClick = onHistory),
             )
