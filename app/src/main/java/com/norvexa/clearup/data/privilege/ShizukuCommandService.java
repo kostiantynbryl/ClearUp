@@ -1,6 +1,7 @@
 package com.norvexa.clearup.data.privilege;
 
 import android.content.Context;
+import android.os.Build;
 
 import androidx.annotation.Keep;
 
@@ -30,6 +31,17 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public String[] execute(String operation, String packageName, int userId) {
+        if (
+                ShizukuCommandPolicy.CLEAR_CACHE.equals(operation)
+                        && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+        ) {
+            return result(
+                    -1,
+                    "",
+                    "Safe Shizuku cache-only cleanup requires Android 13 or newer"
+            );
+        }
+
         final List<String> command = ShizukuCommandPolicy.commandFor(
                 operation,
                 packageName,
@@ -59,15 +71,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
             )) {
                 String line;
-                while ((line = reader.readLine()) != null && output.length() < MAX_OUTPUT_LENGTH) {
-                    if (output.length() > 0) {
-                        output.append('\n');
+                while ((line = reader.readLine()) != null) {
+                    if (output.length() < MAX_OUTPUT_LENGTH) {
+                        if (output.length() > 0) {
+                            output.append('\n');
+                        }
+                        final int remaining = MAX_OUTPUT_LENGTH - output.length();
+                        output.append(line, 0, Math.min(line.length(), remaining));
                     }
-                    output.append(line);
                 }
             }
             final int exitCode = process.exitValue();
-            final String text = truncate(output.toString());
+            final String text = output.toString();
             return exitCode == 0
                     ? result(exitCode, text, "")
                     : result(exitCode, "", text.isEmpty() ? "Command failed" : text);
