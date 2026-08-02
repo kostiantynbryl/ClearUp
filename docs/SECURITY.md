@@ -29,21 +29,22 @@
 
 ## Shizuku
 
-- Shizuku status, API version and execution UID are read locally.
+- Shizuku/Sui status, API version and execution UID are read locally.
 - API versions below 11 are rejected because UserService is unavailable.
 - Permission is requested only from the dedicated access screen and state refreshes on binder and permission events.
 - No privileged operation is executed before explicit permission.
 - The UserService accepts only four operations: cache-only cleanup, force-stop, freeze and unfreeze.
 - Package names and Android user IDs are validated before command construction.
 - Commands are passed as argument arrays directly to `ProcessBuilder`; no shell interpreter or user-provided command text is accepted.
-- Cache cleanup uses `pm clear --cache-only` and does not request deletion of application data.
+- Cache cleanup uses `pm clear --cache-only` only on Android 13 and newer.
+- On Android 8–12, ClearUp refuses Shizuku cache cleanup rather than falling back to `pm clear`, which could erase application data.
 - The UI blocks Shizuku actions for system apps, protected packages and ClearUp itself.
 - Shizuku operations use a separate local audit database limited to the latest 300 entries.
 
 ## Privileged backend selection
 
 - Root has priority when it was explicitly detected from the access screen.
-- Shizuku is used when Root is unavailable and a supported Shizuku/Sui server is running with permission.
+- Shizuku/Sui is used when Root is unavailable and a supported server is running with permission.
 - Standard mode remains available when neither privileged backend is ready.
 
 ## Automation
