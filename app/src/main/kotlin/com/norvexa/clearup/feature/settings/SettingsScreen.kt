@@ -1,7 +1,11 @@
 package com.norvexa.clearup.feature.settings
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +21,7 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
@@ -30,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.norvexa.clearup.automation.AutomationScheduler
 import com.norvexa.clearup.core.designsystem.InfoCard
 import com.norvexa.clearup.core.theme.ThemeMode
 import com.norvexa.clearup.data.settings.SettingsRepository
@@ -38,11 +44,35 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     repository: SettingsRepository,
+    scheduler: AutomationScheduler,
     onAbout: () -> Unit,
 ) {
-    val settings by repository.settings.collectAsStateWithLifecycle(initialValue = repository.defaultSettings)
+    val settings by repository.settings.collectAsStateWithLifecycle(
+        initialValue = repository.defaultSettings,
+    )
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = {},
+    )
+
+    fun updateSchedule(
+        enabled: Boolean = settings.automaticScanEnabled,
+        days: Int = settings.automaticScanIntervalDays,
+        chargingOnly: Boolean = settings.automaticScanChargingOnly,
+        thresholdMb: Int = settings.largeFileThresholdMb,
+    ) {
+        if (enabled) {
+            scheduler.schedule(
+                intervalDays = days,
+                thresholdMb = thresholdMb,
+                chargingOnly = chargingOnly,
+            )
+        } else {
+            scheduler.cancel()
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -55,17 +85,33 @@ fun SettingsScreen(
         }
         item {
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        androidx.compose.material3.Icon(Icons.Outlined.Palette, contentDescription = null)
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(Icons.Outlined.Palette, contentDescription = null)
                         Text("Тема", style = MaterialTheme.typography.titleMedium)
                     }
                     ThemeMode.entries.forEach { mode ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { scope.launch { repository.setThemeMode(mode) } }.padding(vertical = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    scope.launch { repository.setThemeMode(mode) }
+                                }
+                                .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            RadioButton(selected = settings.themeMode == mode, onClick = { scope.launch { repository.setThemeMode(mode) } })
+                            RadioButton(
+                                selected = settings.themeMode == mode,
+                                onClick = {
+                                    scope.launch { repository.setThemeMode(mode) }
+                                },
+                            )
                             Text(
                                 when (mode) {
                                     ThemeMode.SYSTEM -> "Как в системе"
@@ -81,23 +127,36 @@ fun SettingsScreen(
         }
         item {
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
                     SettingSwitch(
-                        title = "Безопасный режим",
-                        description = "Автоматически отмечать только файлы с низким риском",
+                        title = "Предварительно выбирать безопасные",
+                        description = "После сканирования отмечать только файлы с низким риском",
                         checked = settings.safeMode,
-                        onCheckedChange = { scope.launch { repository.setSafeMode(it) } },
+                        onCheckedChange = { enabled ->
+                            scope.launch { repository.setSafeMode(enabled) }
+                        },
                     )
                     SettingSwitch(
                         title = "Показывать системные приложения",
                         description = "Системные пакеты нельзя удалять обычным способом",
                         checked = settings.includeSystemApps,
-                        onCheckedChange = { scope.launch { repository.setIncludeSystemApps(it) } },
+                        onCheckedChange = { enabled ->
+                            scope.launch { repository.setIncludeSystemApps(enabled) }
+                        },
                     )
                     Text("Крупный файл: от ${settings.largeFileThresholdMb} МБ")
                     Slider(
                         value = settings.largeFileThresholdMb.toFloat(),
-                        onValueChange = { scope.launch { repository.setLargeFileThresholdMb(it.toInt()) } },
+                        onValueChange = { rawValue ->
+                            val value = rawValue.toInt()
+                            scope.launch {
+                                repository.setLargeFileThresholdMb(value)
+                                updateSchedule(thresholdMb = value)
+                            }
+                        },
                         valueRange = 20f..1024f,
                         steps = 49,
                     )
@@ -105,17 +164,70 @@ fun SettingsScreen(
             }
         }
         item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Автоматизация", style = MaterialTheme.typography.titleLarge)
+                    SettingSwitch(
+                        title = "Периодическое сканирование",
+                        description = "Только анализ и уведомление, без скрытого удаления",
+                        checked = settings.automaticScanEnabled,
+                        onCheckedChange = { enabled ->
+                            if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                notificationPermissionLauncher.launch(
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                )
+                            }
+                            scope.launch {
+                                repository.setAutomaticScanEnabled(enabled)
+                                updateSchedule(enabled = enabled)
+                            }
+                        },
+                    )
+                    Text("Интервал: ${settings.automaticScanIntervalDays} дн.")
+                    Slider(
+                        value = settings.automaticScanIntervalDays.toFloat(),
+                        onValueChange = { rawValue ->
+                            val days = rawValue.toInt()
+                            scope.launch {
+                                repository.setAutomaticScanIntervalDays(days)
+                                updateSchedule(days = days)
+                            }
+                        },
+                        valueRange = 1f..30f,
+                        steps = 28,
+                        enabled = settings.automaticScanEnabled,
+                    )
+                    SettingSwitch(
+                        title = "Только во время зарядки",
+                        description = "Снижает влияние фонового анализа на батарею",
+                        checked = settings.automaticScanChargingOnly,
+                        onCheckedChange = { chargingOnly ->
+                            scope.launch {
+                                repository.setAutomaticScanChargingOnly(chargingOnly)
+                                updateSchedule(chargingOnly = chargingOnly)
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        item {
             InfoCard(
                 title = "Usage Access",
-                body = "Откройте системный экран, чтобы ClearUp мог показывать размер данных и кэша приложений.",
+                body = "Откройте системный экран, чтобы показывать размер данных и кэша приложений.",
                 icon = Icons.Outlined.AccessTime,
-                modifier = Modifier.clickable { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) },
+                modifier = Modifier.clickable {
+                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                },
             )
         }
         item {
             InfoCard(
                 title = "О программе",
-                body = "Версия, приватность, лицензии и дорожная карта",
+                body = "Версия, приватность и дорожная карта",
                 icon = Icons.Outlined.Info,
                 modifier = Modifier.clickable(onClick = onAbout),
             )
@@ -131,11 +243,21 @@ private fun SettingSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }

@@ -1,39 +1,50 @@
 # Roadmap
 
-## Foundation — in progress
+## Foundation — implemented in source
 
-- Compose application shell
-- Light, Dark and AMOLED themes
-- Storage overview
-- Scanner rules
-- System trash workflow
-- Analyzer and app manager
+- [x] Compose application shell
+- [x] Light, Dark, System and AMOLED themes
+- [x] ClearUp by NORVEXA branding
+- [x] Storage overview
+- [x] Risk-aware scanner rules
+- [x] System trash workflow
+- [x] Analyzer and application manager
+- [x] Protected path and package exclusions
+- [x] Local history
+- [x] Exact duplicate hashing
+- [x] WorkManager scan scheduling
+- [x] Root allowlist and guarded app actions
+- [x] Shizuku state and permission flow
+- [x] Verified GitHub Releases update flow
 
 ## Deep cleanup
 
-- Exclusion database
-- Scan history
-- Exact duplicate hashing
-- Similar-photo perceptual hashing
-- Empty-directory and orphan detection
-- Exportable reports
+- [ ] Similar-photo perceptual hashing
+- [ ] Empty-directory scanner
+- [ ] Root orphan-directory detection
+- [ ] Media quality analysis
+- [ ] Exportable scan reports
+- [ ] Configurable custom scan rules
 
 ## Privileged backends
 
-- Shizuku connection and package/cache operations
-- Root shell with allowlisted commands and audit log
-- Accessibility fallback for OEM settings screens
+- [ ] Shizuku package and cache operations through a dedicated privileged service
+- [ ] Root audit-log details for every executed command
+- [ ] Accessibility fallback for OEM application-settings screens
 
 ## Automation
 
-- WorkManager schedules
-- charging and idle constraints
-- low-free-space notifications
-- safe-category-only automatic cleanup
+- [ ] Low-free-space trigger
+- [ ] Idle-device constraint
+- [ ] Notification actions
+- [ ] Optional safe-category cleanup after a separate explicit opt-in design review
 
 ## Distribution
 
-- GitHub Releases update metadata
-- SHA-256 and signing-certificate verification
-- changelog and rollback guidance
-- no release until the first complete test cycle
+- [x] GitHub Releases metadata
+- [x] SHA-256 verification
+- [x] package-name and signing-certificate verification
+- [ ] signed release workflow
+- [ ] changelog generation
+- [ ] rollback guidance
+- [ ] no release until the first complete test cycle

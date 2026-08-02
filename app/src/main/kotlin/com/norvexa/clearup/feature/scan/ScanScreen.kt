@@ -46,39 +46,61 @@ import kotlinx.coroutines.launch
 fun ScanScreen(
     viewModel: ScanViewModel,
     largeFileThresholdMb: Int,
+    preselectSafeItems: Boolean,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
-    val trashLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+    val trashLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
         if (result.resultCode == Activity.RESULT_OK) viewModel.onTrashCompleted()
     }
 
     LaunchedEffect(Unit) {
         if (!state.scanning && state.scannedCount == 0 && state.items.isEmpty()) {
-            viewModel.scan(largeFileThresholdMb)
+            viewModel.scan(largeFileThresholdMb, preselectSafeItems)
         }
     }
 
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            icon = { androidx.compose.material3.Icon(Icons.Outlined.DeleteSweep, contentDescription = null) },
-            title = { Text("Переместить в корзину?") },
-            text = { Text("Выбрано ${state.selectedItems.size} файлов (${ByteFormatter.format(state.selectedBytes)}). Android покажет системное подтверждение.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    scope.launch {
-                        when (val action = viewModel.prepareTrash()) {
-                            is TrashAction.RequiresConfirmation -> trashLauncher.launch(IntentSenderRequest.Builder(action.pendingIntent).build())
-                            is TrashAction.Completed -> viewModel.onDirectTrashResult(action)
-                            TrashAction.NothingSelected -> Unit
-                        }
-                    }
-                }) { Text("Продолжить") }
+            icon = {
+                androidx.compose.material3.Icon(
+                    Icons.Outlined.DeleteSweep,
+                    contentDescription = null,
+                )
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
+            title = { Text("Переместить в корзину?") },
+            text = {
+                Text(
+                    "Выбрано ${state.selectedItems.size} файлов (${ByteFormatter.format(state.selectedBytes)}). Android покажет системное подтверждение.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        scope.launch {
+                            when (val action = viewModel.prepareTrash()) {
+                                is TrashAction.RequiresConfirmation -> trashLauncher.launch(
+                                    IntentSenderRequest.Builder(action.pendingIntent).build(),
+                                )
+                                is TrashAction.Completed -> viewModel.onDirectTrashResult(action)
+                                TrashAction.NothingSelected -> Unit
+                            }
+                        }
+                    },
+                ) {
+                    Text("Продолжить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text("Отмена")
+                }
+            },
         )
     }
 
@@ -87,28 +109,47 @@ fun ScanScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedButton(onClick = viewModel::selectSafe, modifier = Modifier.weight(1f), enabled = !state.scanning) {
+            OutlinedButton(
+                onClick = viewModel::selectSafe,
+                modifier = Modifier.weight(1f),
+                enabled = !state.scanning,
+            ) {
                 Text("Только безопасные")
             }
-            OutlinedButton(onClick = viewModel::clearSelection, modifier = Modifier.weight(1f), enabled = state.selectedItems.isNotEmpty()) {
+            OutlinedButton(
+                onClick = viewModel::clearSelection,
+                modifier = Modifier.weight(1f),
+                enabled = state.selectedItems.isNotEmpty(),
+            ) {
                 Text("Снять выбор")
             }
         }
 
         when {
-            state.scanning -> {
-                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(16.dp))
-                    Text("Анализируем доступные файлы…")
+            state.scanning -> Column(
+                Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(16.dp))
+                Text("Анализируем доступные файлы…")
+            }
+
+            state.error != null -> Column(
+                Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
+                Button(
+                    onClick = {
+                        viewModel.scan(largeFileThresholdMb, preselectSafeItems)
+                    },
+                ) {
+                    Text("Повторить")
                 }
             }
-            state.error != null -> {
-                Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
-                    Text(state.error.orEmpty(), color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { viewModel.scan(largeFileThresholdMb) }) { Text("Повторить") }
-                }
-            }
+
             else -> {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
@@ -116,28 +157,63 @@ fun ScanScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     item {
-                        Text("Найдено ${state.items.size} объектов из ${state.scannedCount} проверенных", style = MaterialTheme.typography.titleMedium)
-                        Text("Потенциально: ${ByteFormatter.format(state.totalBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        state.message?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
+                        Text(
+                            "Найдено ${state.items.size} объектов из ${state.scannedCount} проверенных",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "Потенциально: ${ByteFormatter.format(state.totalBytes)}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        state.message?.let {
+                            Text(it, color = MaterialTheme.colorScheme.secondary)
+                        }
                     }
                     items(state.items, key = { it.uri }) { item ->
-                        Card(onClick = { viewModel.toggle(item.uri) }, modifier = Modifier.fillMaxWidth()) {
+                        Card(
+                            onClick = { viewModel.toggle(item.uri) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
                             Row(
                                 modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Checkbox(checked = item.selected, onCheckedChange = { viewModel.toggle(item.uri) })
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(item.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                                    Text(item.category.displayName, color = when (item.riskLevel) {
-                                        RiskLevel.SAFE -> MaterialTheme.colorScheme.secondary
-                                        RiskLevel.REVIEW -> MaterialTheme.colorScheme.primary
-                                        RiskLevel.CAUTION -> MaterialTheme.colorScheme.error
-                                    })
-                                    Text(item.path, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                                    Text("${ByteFormatter.format(item.bytes)} · ${DateFormatter.format(item.modifiedAtMillis)}", style = MaterialTheme.typography.bodySmall)
-                                    Text(item.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Checkbox(
+                                    checked = item.selected,
+                                    onCheckedChange = { viewModel.toggle(item.uri) },
+                                )
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    Text(
+                                        item.displayName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                    )
+                                    Text(
+                                        item.category.displayName,
+                                        color = when (item.riskLevel) {
+                                            RiskLevel.SAFE -> MaterialTheme.colorScheme.secondary
+                                            RiskLevel.REVIEW -> MaterialTheme.colorScheme.primary
+                                            RiskLevel.CAUTION -> MaterialTheme.colorScheme.error
+                                        },
+                                    )
+                                    Text(
+                                        item.path,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                    )
+                                    Text(
+                                        "${ByteFormatter.format(item.bytes)} · ${DateFormatter.format(item.modifiedAtMillis)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text(
+                                        item.reason,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }

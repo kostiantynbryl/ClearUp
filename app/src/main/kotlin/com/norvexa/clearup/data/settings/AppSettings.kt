@@ -7,4 +7,7 @@ data class AppSettings(
     val safeMode: Boolean = true,
     val includeSystemApps: Boolean = false,
     val largeFileThresholdMb: Int = 100,
+    val automaticScanEnabled: Boolean = false,
+    val automaticScanIntervalDays: Int = 7,
+    val automaticScanChargingOnly: Boolean = true,
 )

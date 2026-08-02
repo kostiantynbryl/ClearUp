@@ -3,7 +3,6 @@ package com.norvexa.clearup.data.apps
 import android.app.usage.StorageStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import android.os.Process
 import android.os.storage.StorageManager
 import com.norvexa.clearup.domain.model.InstalledApp
@@ -24,7 +23,11 @@ class AndroidAppRepository(private val context: Context) {
             val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
             if (!includeSystemApps && isSystem) return@mapNotNull null
             val stats = runCatching {
-                statsManager.queryStatsForPackage(StorageManager.UUID_DEFAULT, packageInfo.packageName, userHandle)
+                statsManager.queryStatsForPackage(
+                    StorageManager.UUID_DEFAULT,
+                    packageInfo.packageName,
+                    userHandle,
+                )
             }.getOrNull()
             InstalledApp(
                 label = appInfo.loadLabel(packageManager).toString(),
@@ -33,6 +36,7 @@ class AndroidAppRepository(private val context: Context) {
                 installedAtMillis = packageInfo.firstInstallTime,
                 updatedAtMillis = packageInfo.lastUpdateTime,
                 isSystem = isSystem,
+                isEnabled = appInfo.enabled,
                 apkBytes = runCatching { File(appInfo.sourceDir).length() }.getOrDefault(0),
                 appBytes = stats?.appBytes,
                 dataBytes = stats?.dataBytes,

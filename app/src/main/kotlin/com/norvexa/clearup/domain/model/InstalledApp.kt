@@ -7,6 +7,7 @@ data class InstalledApp(
     val installedAtMillis: Long,
     val updatedAtMillis: Long,
     val isSystem: Boolean,
+    val isEnabled: Boolean,
     val apkBytes: Long,
     val appBytes: Long? = null,
     val dataBytes: Long? = null,
