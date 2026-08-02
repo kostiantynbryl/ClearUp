@@ -26,6 +26,7 @@ import androidx.navigation.compose.rememberNavController
 import com.norvexa.clearup.app.AppContainer
 import com.norvexa.clearup.core.designsystem.BrandTopBar
 import com.norvexa.clearup.feature.about.AboutScreen
+import com.norvexa.clearup.feature.accessibility.AccessibilitySetupScreen
 import com.norvexa.clearup.feature.analyzer.AnalyzerScreen
 import com.norvexa.clearup.feature.analyzer.AnalyzerViewModel
 import com.norvexa.clearup.feature.apps.AppsScreen
@@ -77,6 +78,7 @@ fun ClearUpNavigation(container: AppContainer) {
                 } else {
                     when (currentRoute) {
                         "about" -> "О программе"
+                        "accessibility" -> "Accessibility-помощник"
                         "analyzer" -> "Анализатор"
                         "duplicates" -> "Дубликаты"
                         "exclusions" -> "Исключения"
@@ -156,6 +158,7 @@ fun ClearUpNavigation(container: AppContainer) {
                     onExclusions = { navController.navigate("exclusions") },
                     onHistory = { navController.navigate("history") },
                     onPrivileges = { navController.navigate("privileges") },
+                    onAccessibility = { navController.navigate("accessibility") },
                     onRootMaintenance = { navController.navigate("root-maintenance") },
                     onUpdate = { navController.navigate("update") },
                 )
@@ -167,6 +170,7 @@ fun ClearUpNavigation(container: AppContainer) {
                         privilegeManager = container.privilegeManager,
                         rootShell = container.rootShell,
                         shizukuClient = container.shizukuCommandClient,
+                        accessibilityCoordinator = container.accessibilityCacheCoordinator,
                         exclusions = container.exclusionRepository,
                         history = container.historyStore,
                         ownPackageName = container.packageName,
@@ -175,6 +179,7 @@ fun ClearUpNavigation(container: AppContainer) {
                 AppsScreen(
                     viewModel = viewModel,
                     includeSystemApps = settings.includeSystemApps,
+                    onAccessibilitySetup = { navController.navigate("accessibility") },
                 )
             }
             composable(MainDestination.SETTINGS.route) {
@@ -183,6 +188,9 @@ fun ClearUpNavigation(container: AppContainer) {
                     scheduler = container.automationScheduler,
                     onAbout = { navController.navigate("about") },
                 )
+            }
+            composable("accessibility") {
+                AccessibilitySetupScreen(container.accessibilityCacheCoordinator)
             }
             composable("analyzer") {
                 val viewModel: AnalyzerViewModel = viewModel(
