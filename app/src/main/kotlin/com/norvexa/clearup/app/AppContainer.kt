@@ -2,6 +2,7 @@ package com.norvexa.clearup.app
 
 import android.content.Context
 import com.norvexa.clearup.automation.AutomationScheduler
+import com.norvexa.clearup.data.accessibility.AccessibilityCacheCoordinator
 import com.norvexa.clearup.data.apps.AndroidAppRepository
 import com.norvexa.clearup.data.cleanup.TrashManager
 import com.norvexa.clearup.data.duplicates.DuplicateRepository
@@ -30,6 +31,7 @@ class AppContainer(context: Context) {
     val scannerEngine = ScannerEngine(appContext)
     val duplicateRepository = DuplicateRepository(appContext)
     val trashManager = TrashManager(appContext)
+    val accessibilityCacheCoordinator = AccessibilityCacheCoordinator(appContext)
     val rootAuditStore = RootAuditStore(appContext)
     val rootShell = RootShell(rootAuditStore)
     val rootOrphanRepository = RootOrphanRepository(appContext, rootShell)
