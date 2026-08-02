@@ -1,5 +1,6 @@
 package com.norvexa.clearup.feature.apps
 
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -33,6 +34,8 @@ data class AppsUiState(
     val ownPackageName: String = "",
     val rootAvailable: Boolean = false,
     val shizukuAvailable: Boolean = false,
+    val shizukuCacheClearSupported: Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
     val protectedPackages: Set<String> = emptySet(),
     val busyPackage: String? = null,
     val message: String? = null,
@@ -147,7 +150,12 @@ class AppsViewModel(
             backend == AppActionBackend.NONE ||
             app.isSystem ||
             app.packageName in current.protectedPackages ||
-            current.busyPackage != null
+            current.busyPackage != null ||
+            (
+                backend == AppActionBackend.SHIZUKU &&
+                    action == AppMaintenanceAction.CLEAR_CACHE &&
+                    !current.shizukuCacheClearSupported
+                )
         ) {
             return
         }
