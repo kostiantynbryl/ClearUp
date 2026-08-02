@@ -7,6 +7,12 @@ data class EmptyDirectory(
     val depth: Int,
 )
 
+data class EmptyDirectoryScanResult(
+    val directories: List<EmptyDirectory>,
+    val visitedDirectories: Int,
+    val limitReached: Boolean,
+)
+
 data class EmptyDirectoryDeleteResult(
     val deleted: Int,
     val skipped: Int,
