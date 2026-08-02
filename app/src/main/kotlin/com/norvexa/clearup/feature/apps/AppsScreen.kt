@@ -74,8 +74,13 @@ fun AppsScreen(
                     Uri.parse("package:$packageName"),
                 ),
             )
+        }.onSuccess {
+            viewModel.consumeAccessibilityLaunch()
+        }.onFailure { error ->
+            viewModel.accessibilityLaunchFailed(
+                error.message ?: "Система не открыла карточку выбранного приложения",
+            )
         }
-        viewModel.consumeAccessibilityLaunch()
     }
 
     DisposableEffect(lifecycleOwner) {
