@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   release:
@@ -52,6 +53,55 @@ jobs:
             echo "Release v$VERSION already exists; no signing key or assets will be regenerated."
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report existing release artifacts
+        if: steps.existing.outputs.exists == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK_NAME="ClearUp-$VERSION.apk"
+          CHECKSUM_NAME="$APK_NAME.sha256"
+          RELEASE_URL="$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json url --jq '.url')"
+          ASSET_NAMES="$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          grep -Fxq "$APK_NAME" <<< "$ASSET_NAMES"
+          grep -Fxq "$CHECKSUM_NAME" <<< "$ASSET_NAMES"
+
+          SIGNING_ARTIFACT_ID="$(
+            gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=ClearUp-$VERSION-signing-backup&per_page=100" \
+              --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty'
+          )"
+          RELEASE_ARTIFACT_ID="$(
+            gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=ClearUp-$VERSION-release-assets&per_page=100" \
+              --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty'
+          )"
+          test -n "$SIGNING_ARTIFACT_ID"
+          test -n "$RELEASE_ARTIFACT_ID"
+
+          TITLE="ClearUp $VERSION release artifacts"
+          BODY_FILE="$(mktemp)"
+          cat > "$BODY_FILE" <<EOF
+          ClearUp $VERSION is published and contains the required public assets.
+
+          - Release: $RELEASE_URL
+          - APK: $APK_NAME
+          - Checksum: $CHECKSUM_NAME
+          - Private signing-backup artifact ID: $SIGNING_ARTIFACT_ID
+          - Verified release-assets artifact ID: $RELEASE_ARTIFACT_ID
+          - Status-report workflow run ID: $GITHUB_RUN_ID
+
+          The signing-backup artifact is private and expires after 90 days. Download it immediately and keep it offline. This issue contains no signing passwords or key material.
+          EOF
+
+          ISSUE_NUMBER="$(
+            gh issue list --repo "$GITHUB_REPOSITORY" --state all \
+              --search "$TITLE in:title" --json number,title \
+              --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n 1
+          )"
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$BODY_FILE"
           fi
 
       - name: Accessibility safety guard
