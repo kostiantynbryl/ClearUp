@@ -15,6 +15,8 @@ ClearUp is a privacy-first Android storage cleaner for direct distribution outsi
 - Storage category analyzer.
 - Installed application manager with optional `StorageStats` data.
 - Root actions for user apps: cache/code_cache cleanup, force-stop, freeze and unfreeze.
+- Root orphan-directory scanner with fixed path allowlists and an installed-package recheck before deletion.
+- Local Root audit with action, target, exit code and truncated output.
 - Exact duplicate detection using local SHA-256.
 - Protected path and package exclusions.
 - Local scan, cleanup, app-action and update history.
@@ -51,4 +53,4 @@ The app refuses the update when the hash file is absent, SHA-256 differs, packag
 
 ## Safety model
 
-ClearUp never silently removes user media. Results include category, reason and risk. Personal files are sent to Android's system trash only after user confirmation. Root commands validate package names, target user apps only in the UI and are blocked for protected packages and ClearUp itself.
+ClearUp never silently removes user media. Results include category, reason and risk. Personal files are sent to Android's system trash only after user confirmation. Root commands validate package names, target user apps only in the UI and are blocked for protected packages and ClearUp itself. Orphan directories are never preselected and are deleted only from fixed package roots after Android confirms that the package is no longer installed.
