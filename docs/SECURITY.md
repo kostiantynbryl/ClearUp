@@ -8,6 +8,16 @@
 - Log, backup and old-file extensions are never automatically treated as safe.
 - Android 11+ cleanup uses the system MediaStore trash request.
 
+## Public empty directories
+
+- Scanning is restricted to fixed public roots such as Download, Documents, DCIM, Pictures, Movies and Music.
+- Storage roots, the complete `Android/` tree, symbolic links and inaccessible directories are excluded.
+- The traversal is cancellable and limited to 50,000 directories per run.
+- Only actually empty directories older than the user-selected 7/14/30/90-day threshold are shown.
+- Nothing is selected automatically; deletion requires an explicit selection and confirmation dialog.
+- Immediately before deletion, ClearUp resolves the canonical path again, checks the fixed-root allowlist, rejects symlinks and verifies that the directory is still empty.
+- Directories that changed, moved, became non-empty or cannot be read are skipped or reported as failures.
+
 ## Root
 
 - Root detection runs only after the user opens the dedicated access screen.
@@ -63,12 +73,20 @@
 - The Accessibility helper is used only when Root and Shizuku are unavailable, its service is enabled and consent remains active.
 - Standard Android system screens remain available when no automation backend is ready.
 
+## Report export
+
+- History export is user initiated and contains only the local history fields already visible in ClearUp.
+- Reports are written atomically to `cache/reports`; at most ten cached report files are retained.
+- The internal filesystem path is never shared.
+- The existing non-exported FileProvider produces a content URI with a temporary read-only grant for the application chosen by the user.
+
 ## Automation
 
 - WorkManager performs scanning and notification only.
 - Background deletion is not implemented.
 - Charging and battery constraints can be applied.
 - Accessibility requests are never started by WorkManager or another background component.
+- Empty-directory deletion and report export are never scheduled in the background.
 
 ## Updates
 
