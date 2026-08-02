@@ -4,8 +4,8 @@
 
 - **UI:** Jetpack Compose screens and ViewModels.
 - **Domain models:** platform-neutral scan, storage and application entities.
-- **Data:** MediaStore scanner, StorageStats, DataStore and cleanup executors.
-- **Privileged adapters:** future Root, Shizuku and Accessibility implementations, kept separate from standard mode.
+- **Data:** MediaStore scanner, StorageStats, DataStore, SQLite audits and cleanup executors.
+- **Privileged adapters:** Root shell and Shizuku UserService implementations kept separate from standard mode.
 
 ## Scanner contract
 
@@ -15,7 +15,25 @@ Each result contains an Android content URI, display path, byte size, category, 
 
 - Android 11+: move selected MediaStore items into the system trash with a system confirmation dialog.
 - Android 8–10: direct ContentResolver deletion only after an in-app confirmation.
-- Privileged cleanup: not mixed into the standard executor; every command must be logged and auditable.
+- Privileged cleanup is not mixed into the standard executor; every operation is validated and auditable.
+
+## Privileged application actions
+
+`AppsViewModel` selects one backend in this order:
+
+1. Root, after explicit Root detection.
+2. Shizuku/Sui, after binder, API and permission checks.
+3. Standard Android system screens.
+
+The Shizuku adapter consists of:
+
+- an AIDL contract;
+- a remote `UserService` running with the Shizuku/Sui UID;
+- a client-side connection manager;
+- a pure Java command policy with a fixed operation allowlist;
+- a local audit store.
+
+The remote service never receives a free-form shell command. It receives an operation identifier, a validated package name and a validated Android user ID, then builds a fixed argument list for `pm` or `am`.
 
 ## Theme system
 
