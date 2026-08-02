@@ -6,7 +6,6 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.Process
-import android.os.UserHandle
 import com.norvexa.clearup.BuildConfig
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -126,8 +125,7 @@ class ShizukuCommandClient(
         result
     }
 
-    private fun currentUserId(): Int =
-        UserHandle.getUserHandleForUid(Process.myUid()).identifier
+    private fun currentUserId(): Int = Process.myUid() / PER_USER_RANGE
 
     private suspend fun awaitService(): IShizukuCommandService {
         service?.takeIf { it.asBinder().pingBinder() }?.let { return it }
@@ -190,5 +188,6 @@ class ShizukuCommandClient(
 
     companion object {
         private const val CONNECTION_TIMEOUT_MS = 10_000L
+        private const val PER_USER_RANGE = 100_000
     }
 }
