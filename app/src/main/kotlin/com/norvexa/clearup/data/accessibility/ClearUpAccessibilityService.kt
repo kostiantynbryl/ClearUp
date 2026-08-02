@@ -28,6 +28,8 @@ class ClearUpAccessibilityService : AccessibilityService() {
         }
 
         val root = rootInActiveWindow ?: return
+        if (!rootMatchesTarget(root, session)) return
+
         when (session.stage) {
             AccessibilityCacheStage.WAITING_APP_DETAILS -> {
                 if (tryClearCache(root, session)) return
@@ -51,8 +53,24 @@ class ClearUpAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         coordinator.refreshCapabilities()
+        coordinator.close()
         super.onDestroy()
     }
+
+    private fun rootMatchesTarget(
+        root: AccessibilityNodeInfo,
+        session: AccessibilityCacheSession,
+    ): Boolean = findNode(root) { node ->
+        AccessibilityCachePolicy.matchesTarget(
+            value = node.text,
+            packageName = session.packageName,
+            appLabel = session.appLabel,
+        ) || AccessibilityCachePolicy.matchesTarget(
+            value = node.contentDescription,
+            packageName = session.packageName,
+            appLabel = session.appLabel,
+        )
+    } != null
 
     private fun tryOpenStorage(
         root: AccessibilityNodeInfo,
