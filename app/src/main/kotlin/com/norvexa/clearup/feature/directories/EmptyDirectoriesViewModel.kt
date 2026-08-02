@@ -20,6 +20,8 @@ data class EmptyDirectoriesUiState(
     val minAgeDays: Int = EmptyDirectoryRepository.DEFAULT_MIN_AGE_DAYS,
     val directories: List<EmptyDirectory> = emptyList(),
     val selectedPaths: Set<String> = emptySet(),
+    val visitedDirectories: Int = 0,
+    val scanLimitReached: Boolean = false,
     val message: String? = null,
     val error: String? = null,
 ) {
@@ -47,6 +49,8 @@ class EmptyDirectoriesViewModel(
                 minAgeDays = days,
                 directories = emptyList(),
                 selectedPaths = emptySet(),
+                visitedDirectories = 0,
+                scanLimitReached = false,
                 message = null,
                 error = null,
             )
@@ -73,28 +77,39 @@ class EmptyDirectoriesViewModel(
                     accessAvailable = true,
                     scanning = true,
                     selectedPaths = emptySet(),
+                    visitedDirectories = 0,
+                    scanLimitReached = false,
                     message = null,
                     error = null,
                 )
             }
             runCatching {
                 repository.scan(ageDays)
-            }.onSuccess { directories ->
+            }.onSuccess { scanResult ->
                 history.record(
                     type = HistoryType.SCAN,
-                    itemCount = directories.size,
+                    itemCount = scanResult.directories.size,
                     bytes = 0,
-                    note = "EMPTY_DIRECTORIES: older_than_${ageDays}_days",
+                    note = buildString {
+                        append("EMPTY_DIRECTORIES: older_than_${ageDays}_days")
+                        append("; visited=${scanResult.visitedDirectories}")
+                        if (scanResult.limitReached) append("; partial=true")
+                    },
                 )
                 _state.update {
                     it.copy(
                         scanning = false,
-                        directories = directories,
+                        directories = scanResult.directories,
                         selectedPaths = emptySet(),
-                        message = if (directories.isEmpty()) {
-                            "Подходящих пустых каталогов не найдено"
-                        } else {
-                            "Найдено каталогов: ${directories.size}. Ничего не выбрано автоматически."
+                        visitedDirectories = scanResult.visitedDirectories,
+                        scanLimitReached = scanResult.limitReached,
+                        message = when {
+                            scanResult.limitReached ->
+                                "Проверено ${scanResult.visitedDirectories} каталогов. Достигнут безопасный лимит, результаты частичные."
+                            scanResult.directories.isEmpty() ->
+                                "Проверено ${scanResult.visitedDirectories}. Подходящих пустых каталогов не найдено."
+                            else ->
+                                "Проверено ${scanResult.visitedDirectories}, найдено ${scanResult.directories.size}. Ничего не выбрано автоматически."
                         },
                     )
                 }
@@ -140,27 +155,34 @@ class EmptyDirectoriesViewModel(
             val ageDays = _state.value.minAgeDays
             _state.update { it.copy(deleting = true, message = null, error = null) }
             runCatching {
-                val result = repository.deleteSelected(selected)
-                if (result.deleted > 0) {
+                val deleteResult = repository.deleteSelected(selected)
+                if (deleteResult.deleted > 0) {
                     history.record(
                         type = HistoryType.CLEANUP,
-                        itemCount = result.deleted,
+                        itemCount = deleteResult.deleted,
                         bytes = 0,
                         note = "EMPTY_DIRECTORIES",
                     )
                 }
-                result to repository.scan(ageDays)
-            }.onSuccess { (result, refreshedDirectories) ->
+                deleteResult to repository.scan(ageDays)
+            }.onSuccess { (deleteResult, scanResult) ->
                 _state.update {
                     it.copy(
                         deleting = false,
-                        directories = refreshedDirectories,
+                        directories = scanResult.directories,
                         selectedPaths = emptySet(),
+                        visitedDirectories = scanResult.visitedDirectories,
+                        scanLimitReached = scanResult.limitReached,
                         message = buildString {
-                            append("Удалено: ${result.deleted}")
-                            if (result.skipped > 0) append(" · пропущено: ${result.skipped}")
-                            if (result.failedPaths.isNotEmpty()) {
-                                append(" · ошибок: ${result.failedPaths.size}")
+                            append("Удалено: ${deleteResult.deleted}")
+                            if (deleteResult.skipped > 0) {
+                                append(" · пропущено: ${deleteResult.skipped}")
+                            }
+                            if (deleteResult.failedPaths.isNotEmpty()) {
+                                append(" · ошибок: ${deleteResult.failedPaths.size}")
+                            }
+                            if (scanResult.limitReached) {
+                                append(" · повторное сканирование частичное")
                             }
                         },
                     )
