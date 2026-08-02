@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">ClearUp</string>
     <string name="brand_name">ClearUp by NORVEXA</string>
+    <string name="accessibility_service_label">ClearUp: очистка кэша</string>
+    <string name="accessibility_service_description">По вашему явному запросу открывает системную страницу выбранного приложения и нажимает только кнопку очистки кэша. Содержимое других приложений не читается и очистка данных не выполняется.</string>
 </resources>
