@@ -41,9 +41,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.norvexa.clearup.core.util.ByteFormatter
 import com.norvexa.clearup.domain.model.InstalledApp
 
-private data class PendingRootAction(
+private data class PendingAppAction(
     val app: InstalledApp,
-    val action: RootAppAction,
+    val action: AppMaintenanceAction,
 )
 
 @Composable
@@ -53,34 +53,35 @@ fun AppsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var pendingRootAction by remember { mutableStateOf<PendingRootAction?>(null) }
+    var pendingAction by remember { mutableStateOf<PendingAppAction?>(null) }
 
     LaunchedEffect(includeSystemApps) {
         viewModel.load(includeSystemApps)
     }
 
-    pendingRootAction?.let { pending ->
+    pendingAction?.let { pending ->
         AlertDialog(
-            onDismissRequest = { pendingRootAction = null },
-            title = { Text(rootActionTitle(pending.action)) },
+            onDismissRequest = { pendingAction = null },
+            title = { Text(actionTitle(pending.action)) },
             text = {
                 Text(
-                    "${pending.app.label}\n${pending.app.packageName}\n\n" +
-                        rootActionDescription(pending.action),
+                    "${pending.app.label}\n${pending.app.packageName}\n" +
+                        "Режим: ${state.actionBackend.label}\n\n" +
+                        actionDescription(pending.action),
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.executeRootAction(pending.app, pending.action)
-                        pendingRootAction = null
+                        viewModel.executeAction(pending.app, pending.action)
+                        pendingAction = null
                     },
                 ) {
                     Text("Выполнить")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRootAction = null }) {
+                TextButton(onClick = { pendingAction = null }) {
                     Text("Отмена")
                 }
             },
@@ -106,10 +107,13 @@ fun AppsScreen(
         item {
             Text("Приложения", style = MaterialTheme.typography.headlineMedium)
             Text(
-                if (state.rootAvailable) {
-                    "Root обнаружен. Опасные действия доступны только для незащищённых пользовательских приложений."
-                } else {
-                    "Размер кэша доступен после выдачи Usage Access."
+                when (state.actionBackend) {
+                    AppActionBackend.ROOT ->
+                        "Активен Root. Расширенные действия доступны только для незащищённых пользовательских приложений."
+                    AppActionBackend.SHIZUKU ->
+                        "Активен Shizuku. Команды выполняются с UID запущенного сервиса Shizuku/Sui."
+                    AppActionBackend.NONE ->
+                        "Размер кэша доступен после выдачи Usage Access. Расширенный режим можно включить в разделе доступа."
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -189,7 +193,7 @@ fun AppsScreen(
                     } else {
                         AppActionsMenu(
                             app = app,
-                            rootAvailable = state.rootAvailable,
+                            backend = state.actionBackend,
                             protected = protected,
                             protectionLocked = app.packageName == state.ownPackageName,
                             onOpenSettings = {
@@ -211,8 +215,8 @@ fun AppsScreen(
                             onSetProtected = { enabled ->
                                 viewModel.setProtected(app.packageName, enabled)
                             },
-                            onRootAction = { action ->
-                                pendingRootAction = PendingRootAction(app, action)
+                            onAction = { action ->
+                                pendingAction = PendingAppAction(app, action)
                             },
                         )
                     }
@@ -226,13 +230,13 @@ fun AppsScreen(
 @Composable
 private fun AppActionsMenu(
     app: InstalledApp,
-    rootAvailable: Boolean,
+    backend: AppActionBackend,
     protected: Boolean,
     protectionLocked: Boolean,
     onOpenSettings: () -> Unit,
     onUninstall: () -> Unit,
     onSetProtected: (Boolean) -> Unit,
-    onRootAction: (RootAppAction) -> Unit,
+    onAction: (AppMaintenanceAction) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -275,35 +279,39 @@ private fun AppActionsMenu(
                     onSetProtected(!protected)
                 },
             )
-            if (rootAvailable && !app.isSystem && !protected) {
+            if (backend != AppActionBackend.NONE && !app.isSystem && !protected) {
                 DropdownMenuItem(
-                    text = { Text("Очистить кэш через Root") },
+                    text = { Text("Очистить кэш · ${backend.label}") },
                     onClick = {
                         expanded = false
-                        onRootAction(RootAppAction.CLEAR_CACHE)
+                        onAction(AppMaintenanceAction.CLEAR_CACHE)
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("Остановить через Root") },
+                    text = { Text("Остановить · ${backend.label}") },
                     onClick = {
                         expanded = false
-                        onRootAction(RootAppAction.FORCE_STOP)
+                        onAction(AppMaintenanceAction.FORCE_STOP)
                     },
                 )
                 DropdownMenuItem(
                     text = {
                         Text(
                             if (app.isEnabled) {
-                                "Заморозить через Root"
+                                "Заморозить · ${backend.label}"
                             } else {
-                                "Разморозить через Root"
+                                "Разморозить · ${backend.label}"
                             },
                         )
                     },
                     onClick = {
                         expanded = false
-                        onRootAction(
-                            if (app.isEnabled) RootAppAction.FREEZE else RootAppAction.UNFREEZE,
+                        onAction(
+                            if (app.isEnabled) {
+                                AppMaintenanceAction.FREEZE
+                            } else {
+                                AppMaintenanceAction.UNFREEZE
+                            },
                         )
                     },
                 )
@@ -312,16 +320,20 @@ private fun AppActionsMenu(
     }
 }
 
-private fun rootActionTitle(action: RootAppAction): String = when (action) {
-    RootAppAction.CLEAR_CACHE -> "Очистить кэш через Root?"
-    RootAppAction.FORCE_STOP -> "Остановить приложение?"
-    RootAppAction.FREEZE -> "Заморозить приложение?"
-    RootAppAction.UNFREEZE -> "Разморозить приложение?"
+private fun actionTitle(action: AppMaintenanceAction): String = when (action) {
+    AppMaintenanceAction.CLEAR_CACHE -> "Очистить кэш?"
+    AppMaintenanceAction.FORCE_STOP -> "Остановить приложение?"
+    AppMaintenanceAction.FREEZE -> "Заморозить приложение?"
+    AppMaintenanceAction.UNFREEZE -> "Разморозить приложение?"
 }
 
-private fun rootActionDescription(action: RootAppAction): String = when (action) {
-    RootAppAction.CLEAR_CACHE -> "Будут очищены только cache и code_cache. Пользовательские данные останутся на месте."
-    RootAppAction.FORCE_STOP -> "Приложение перестанет работать до следующего ручного запуска или системного события."
-    RootAppAction.FREEZE -> "Пакет будет отключён для текущего пользователя до ручной разморозки."
-    RootAppAction.UNFREEZE -> "Пакет снова станет доступен для запуска."
+private fun actionDescription(action: AppMaintenanceAction): String = when (action) {
+    AppMaintenanceAction.CLEAR_CACHE ->
+        "Будет очищен только кэш пакета. Пользовательские данные и настройки останутся на месте."
+    AppMaintenanceAction.FORCE_STOP ->
+        "Приложение перестанет работать до следующего ручного запуска или системного события."
+    AppMaintenanceAction.FREEZE ->
+        "Пакет будет отключён для текущего пользователя до ручной разморозки."
+    AppMaintenanceAction.UNFREEZE ->
+        "Пакет снова станет доступен для запуска."
 }
