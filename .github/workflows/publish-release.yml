@@ -1,0 +1,179 @@
+name: Publish signed release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$VERSION"
+          case "$VERSION" in
+            *-dev|*-debug|*-alpha*|*-beta*|*-rc*)
+              echo "Refusing to publish non-stable version: $VERSION" >&2
+              exit 1
+              ;;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether release already exists
+        id: existing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release v$VERSION already exists; no signing key or assets will be regenerated."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Accessibility safety guard
+        if: steps.existing.outputs.exists != 'true'
+        run: python3 scripts/verify_accessibility_safety.py
+
+      - name: Storage safety guard
+        if: steps.existing.outputs.exists != 'true'
+        run: python3 scripts/verify_storage_safety.py
+
+      - name: Compile, unit tests and Android lint
+        if: steps.existing.outputs.exists != 'true'
+        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug --stacktrace
+
+      - name: Analyze release R8 configuration
+        if: steps.existing.outputs.exists != 'true'
+        run: ./gradlew :app:analyzeReleaseR8Config --stacktrace
+
+      - name: Generate protected production signing key
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signing
+          STORE_PASSWORD="$(openssl rand -hex 32)"
+          KEY_PASSWORD="$(openssl rand -hex 32)"
+          KEY_ALIAS="clearup_release"
+          echo "::add-mask::$STORE_PASSWORD"
+          echo "::add-mask::$KEY_PASSWORD"
+          echo "CLEARUP_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "CLEARUP_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "CLEARUP_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          keytool -genkeypair \
+            -keystore signing/ClearUp-release.jks \
+            -storetype JKS \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -keypass "$KEY_PASSWORD" \
+            -keyalg RSA \
+            -keysize 4096 \
+            -sigalg SHA256withRSA \
+            -validity 10000 \
+            -dname "CN=ClearUp by NORVEXA, OU=Mobile, O=NORVEXA, L=Kyiv, ST=Kyiv, C=UA"
+          {
+            echo "ClearUp by NORVEXA production signing backup"
+            echo "Version: $VERSION"
+            echo "Key alias: $KEY_ALIAS"
+            echo "Store password: $STORE_PASSWORD"
+            echo "Key password: $KEY_PASSWORD"
+            echo
+            echo "KEEP THIS FILE AND ClearUp-release.jks PRIVATE."
+            echo "Every future ClearUp update must be signed with this same key."
+          } > signing/credentials.txt
+          chmod 600 signing/ClearUp-release.jks signing/credentials.txt
+
+      - name: Build signed release APK
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease --stacktrace \
+            -Pclearup.release.storeFile="$GITHUB_WORKSPACE/signing/ClearUp-release.jks" \
+            -Pclearup.release.storePassword="$CLEARUP_STORE_PASSWORD" \
+            -Pclearup.release.keyAlias="$CLEARUP_KEY_ALIAS" \
+            -Pclearup.release.keyPassword="$CLEARUP_KEY_PASSWORD"
+
+      - name: Verify and package release assets
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$SOURCE_APK"
+          APK_NAME="ClearUp-$VERSION.apk"
+          mkdir -p dist
+          cp "$SOURCE_APK" "dist/$APK_NAME"
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+
+          "$APKSIGNER" verify --verbose --print-certs "dist/$APK_NAME" | tee signing/certificate.txt
+          PACKAGE_NAME="$("$AAPT" dump badging "dist/$APK_NAME" | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          test "$PACKAGE_NAME" = "com.norvexa.clearup"
+
+          (
+            cd dist
+            sha256sum "$APK_NAME" > "$APK_NAME.sha256"
+          )
+          test -s "dist/$APK_NAME.sha256"
+
+      - name: Upload private signing backup
+        if: steps.existing.outputs.exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearUp-${{ steps.version.outputs.version }}-signing-backup
+          path: signing/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 9
+
+      - name: Upload verified release assets
+        if: steps.existing.outputs.exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearUp-${{ steps.version.outputs.version }}-release-assets
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 9
+
+      - name: Publish GitHub Release
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK_NAME="ClearUp-$VERSION.apk"
+          gh release create "v$VERSION" \
+            "dist/$APK_NAME" \
+            "dist/$APK_NAME.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "ClearUp $VERSION" \
+            --notes-file CHANGELOG.md
