@@ -6,6 +6,7 @@ data class PrivilegeState(
     val shizukuRunning: Boolean = false,
     val shizukuPermissionGranted: Boolean = false,
     val shizukuUid: Int? = null,
+    val shizukuVersion: Int? = null,
 ) {
     val bestMode: AccessMode = when {
         rootAvailable -> AccessMode.ROOT
