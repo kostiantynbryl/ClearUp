@@ -41,17 +41,34 @@
 - The UI blocks Shizuku actions for system apps, protected packages and ClearUp itself.
 - Shizuku operations use a separate local audit database limited to the latest 300 entries.
 
-## Privileged backend selection
+## Accessibility cache helper
+
+- The helper is a fallback only when Root and Shizuku are unavailable.
+- A prominent in-app disclosure and affirmative consent are required before opening Android Accessibility settings.
+- ClearUp does not declare `isAccessibilityTool=true` because its primary purpose is storage maintenance rather than disability support.
+- Every request is initiated by the user for one selected non-system, non-protected package.
+- A request expires after 90 seconds and can be cancelled from the ClearUp setup screen.
+- The service receives events only from an explicit allowlist of Android and OEM settings packages.
+- Window-content retrieval is used only to identify the selected application, the storage entry and the exact cache-clear control.
+- The selected application's exact label or package name must be visible before every click.
+- Safe controls are matched through exact localized labels or narrowly named resource IDs.
+- Labels for clearing storage or application data are kept in an explicit denylist.
+- The service does not perform gestures, enter text, use global navigation actions or accept free-form automation instructions.
+- Failed, cancelled and completed requests are persisted locally as the latest session state; completed actions are also written to the common app-action history.
+
+## Application-action backend selection
 
 - Root has priority when it was explicitly detected from the access screen.
 - Shizuku/Sui is used when Root is unavailable and a supported server is running with permission.
-- Standard mode remains available when neither privileged backend is ready.
+- The Accessibility helper is used only when Root and Shizuku are unavailable, its service is enabled and consent remains active.
+- Standard Android system screens remain available when no automation backend is ready.
 
 ## Automation
 
 - WorkManager performs scanning and notification only.
 - Background deletion is not implemented.
 - Charging and battery constraints can be applied.
+- Accessibility requests are never started by WorkManager or another background component.
 
 ## Updates
 
@@ -65,4 +82,5 @@
 ## Privacy
 
 - Exact duplicate detection uses local SHA-256 and never uploads file contents.
+- Accessibility window text is evaluated in memory and is not stored as a screen dump.
 - File names, paths, application data, scan history and privileged-operation audits remain on the device.
