@@ -4,18 +4,27 @@
 
 - **UI:** Jetpack Compose screens and ViewModels.
 - **Domain models:** platform-neutral scan, storage and application entities.
-- **Data:** MediaStore scanner, StorageStats, DataStore, SharedPreferences session state, SQLite audits and cleanup executors.
+- **Data:** MediaStore scanner, public-directory scanner, StorageStats, DataStore, SharedPreferences session state, SQLite audits, report export and cleanup executors.
 - **Privileged adapters:** Root shell and Shizuku UserService implementations kept separate from standard mode.
 - **User-assisted adapter:** a narrowly scoped AccessibilityService that operates only inside allowlisted system-settings packages.
 
 ## Scanner contract
 
-Each result contains an Android content URI, display path, byte size, category, reason and risk level. Rules are deterministic and testable. A rule can recommend selection only when the item is classed as `SAFE`.
+Each MediaStore result contains an Android content URI, display path, byte size, category, reason and risk level. Rules are deterministic and testable. A rule can recommend selection only when the item is classed as `SAFE`.
+
+The empty-directory scanner uses a separate filesystem contract because directories are not represented reliably as MediaStore items:
+
+- only fixed public storage roots are traversed;
+- canonical path policy is platform-neutral and unit tested;
+- symlinks and `Android/` are excluded;
+- traversal is cancellable and bounded;
+- candidates are never preselected.
 
 ## Cleanup contract
 
 - Android 11+: move selected MediaStore items into the system trash with a system confirmation dialog.
 - Android 8–10: direct ContentResolver deletion only after an in-app confirmation.
+- Empty directories: resolve and validate the canonical path again, confirm the directory is still empty, then delete only that directory.
 - Privileged cleanup is not mixed into the standard executor; every operation is validated and auditable.
 - Accessibility cache cleanup is a user-driven system-settings workflow, not a background cleanup executor.
 
@@ -55,6 +64,19 @@ The finite-state flow is:
 3. `COMPLETED`, `FAILED` or `CANCELLED`
 
 A request expires after 90 seconds. Before each click, the service confirms that the current accessibility tree belongs to an allowlisted settings package and contains the selected app's exact label or package name. It clicks only an exact storage label/resource ID or exact clear-cache label/resource ID. Clear-data and clear-storage labels are explicitly denied.
+
+## Empty-directory workflow
+
+- `EmptyDirectoryPolicy` defines canonical descendant and depth rules without Android dependencies.
+- `EmptyDirectoryRepository` performs bounded scanning and deletion-time validation on `Dispatchers.IO`.
+- `EmptyDirectoriesViewModel` keeps selection explicit and records scan/cleanup history.
+- `EmptyDirectoriesScreen` handles storage permission, age thresholds, review and confirmation.
+
+After deletion, the repository scans again so skipped, failed or newly changed directories remain accurately represented in the UI.
+
+## Report export
+
+`ReportExporter` serializes the current local history snapshot to JSON in `cache/reports`, keeps at most ten cached reports and returns an `ACTION_SEND` intent containing a FileProvider URI. The export surface receives no raw filesystem path and only a temporary read grant.
 
 ## Theme system
 
