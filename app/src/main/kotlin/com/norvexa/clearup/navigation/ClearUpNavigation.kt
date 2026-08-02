@@ -166,6 +166,7 @@ fun ClearUpNavigation(container: AppContainer) {
                         repository = container.appRepository,
                         privilegeManager = container.privilegeManager,
                         rootShell = container.rootShell,
+                        shizukuClient = container.shizukuCommandClient,
                         exclusions = container.exclusionRepository,
                         history = container.historyStore,
                         ownPackageName = container.packageName,
