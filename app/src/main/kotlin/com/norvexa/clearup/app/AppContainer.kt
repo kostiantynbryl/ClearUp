@@ -11,6 +11,8 @@ import com.norvexa.clearup.data.privilege.PrivilegeManager
 import com.norvexa.clearup.data.privilege.RootAuditStore
 import com.norvexa.clearup.data.privilege.RootOrphanRepository
 import com.norvexa.clearup.data.privilege.RootShell
+import com.norvexa.clearup.data.privilege.ShizukuAuditStore
+import com.norvexa.clearup.data.privilege.ShizukuCommandClient
 import com.norvexa.clearup.data.scanner.ScannerEngine
 import com.norvexa.clearup.data.settings.SettingsRepository
 import com.norvexa.clearup.data.storage.AndroidStorageRepository
@@ -31,6 +33,8 @@ class AppContainer(context: Context) {
     val rootAuditStore = RootAuditStore(appContext)
     val rootShell = RootShell(rootAuditStore)
     val rootOrphanRepository = RootOrphanRepository(appContext, rootShell)
+    val shizukuAuditStore = ShizukuAuditStore(appContext)
+    val shizukuCommandClient = ShizukuCommandClient(appContext, shizukuAuditStore)
     val privilegeManager = PrivilegeManager(appContext, rootShell)
     val automationScheduler = AutomationScheduler(appContext)
     val updateRepository = UpdateRepository(appContext)
