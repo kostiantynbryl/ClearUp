@@ -38,6 +38,8 @@ import com.norvexa.clearup.feature.home.HomeScreen
 import com.norvexa.clearup.feature.home.HomeViewModel
 import com.norvexa.clearup.feature.privilege.PrivilegeScreen
 import com.norvexa.clearup.feature.privilege.PrivilegeViewModel
+import com.norvexa.clearup.feature.privilege.RootMaintenanceScreen
+import com.norvexa.clearup.feature.privilege.RootMaintenanceViewModel
 import com.norvexa.clearup.feature.scan.ScanScreen
 import com.norvexa.clearup.feature.scan.ScanViewModel
 import com.norvexa.clearup.feature.settings.SettingsScreen
@@ -80,6 +82,7 @@ fun ClearUpNavigation(container: AppContainer) {
                         "exclusions" -> "Исключения"
                         "history" -> "История"
                         "privileges" -> "Доступ"
+                        "root-maintenance" -> "Root-обслуживание"
                         "update" -> "Обновление"
                         else -> null
                     }
@@ -153,6 +156,7 @@ fun ClearUpNavigation(container: AppContainer) {
                     onExclusions = { navController.navigate("exclusions") },
                     onHistory = { navController.navigate("history") },
                     onPrivileges = { navController.navigate("privileges") },
+                    onRootMaintenance = { navController.navigate("root-maintenance") },
                     onUpdate = { navController.navigate("update") },
                 )
             }
@@ -207,6 +211,17 @@ fun ClearUpNavigation(container: AppContainer) {
                     factory = PrivilegeViewModel.Factory(container.privilegeManager),
                 )
                 PrivilegeScreen(viewModel)
+            }
+            composable("root-maintenance") {
+                val viewModel: RootMaintenanceViewModel = viewModel(
+                    factory = RootMaintenanceViewModel.Factory(
+                        repository = container.rootOrphanRepository,
+                        exclusions = container.exclusionRepository,
+                        history = container.historyStore,
+                        auditStore = container.rootAuditStore,
+                    ),
+                )
+                RootMaintenanceScreen(viewModel)
             }
             composable("update") {
                 val viewModel: UpdateViewModel = viewModel(
