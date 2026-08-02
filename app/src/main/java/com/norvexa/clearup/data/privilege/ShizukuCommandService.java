@@ -7,16 +7,11 @@ import androidx.annotation.Keep;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 
 @Keep
 public final class ShizukuCommandService extends IShizukuCommandService.Stub {
-    private static final Pattern PACKAGE_PATTERN = Pattern.compile(
-            "^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$"
-    );
     private static final int MAX_OUTPUT_LENGTH = 4_000;
     private static final long TIMEOUT_SECONDS = 45L;
 
@@ -35,56 +30,15 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public String[] execute(String operation, String packageName, int userId) {
-        if (operation == null || !PACKAGE_PATTERN.matcher(packageName == null ? "" : packageName).matches()) {
-            return result(-1, "", "Invalid operation target");
-        }
-        if (userId < 0 || userId > 999) {
-            return result(-1, "", "Invalid Android user id");
-        }
-
-        final List<String> command = commandFor(operation, packageName, userId);
+        final List<String> command = ShizukuCommandPolicy.commandFor(
+                operation,
+                packageName,
+                userId
+        );
         if (command == null) {
-            return result(-1, "", "Unsupported Shizuku operation");
+            return result(-1, "", "Operation, package name or Android user is not allowed");
         }
         return run(command);
-    }
-
-    private static List<String> commandFor(String operation, String packageName, int userId) {
-        final String user = Integer.toString(userId);
-        final List<String> command = new ArrayList<>();
-        switch (operation) {
-            case "CLEAR_CACHE":
-                command.add("/system/bin/pm");
-                command.add("clear");
-                command.add("--user");
-                command.add(user);
-                command.add("--cache-only");
-                command.add(packageName);
-                return command;
-            case "FORCE_STOP":
-                command.add("/system/bin/am");
-                command.add("force-stop");
-                command.add("--user");
-                command.add(user);
-                command.add(packageName);
-                return command;
-            case "FREEZE":
-                command.add("/system/bin/pm");
-                command.add("disable-user");
-                command.add("--user");
-                command.add(user);
-                command.add(packageName);
-                return command;
-            case "UNFREEZE":
-                command.add("/system/bin/pm");
-                command.add("enable");
-                command.add("--user");
-                command.add(user);
-                command.add(packageName);
-                return command;
-            default:
-                return null;
-        }
     }
 
     private static String[] run(List<String> command) {
@@ -118,7 +72,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     ? result(exitCode, text, "")
                     : result(exitCode, "", text.isEmpty() ? "Command failed" : text);
         } catch (Throwable error) {
-            return result(-1, "", truncate(error.getMessage() == null ? error.toString() : error.getMessage()));
+            return result(
+                    -1,
+                    "",
+                    truncate(error.getMessage() == null ? error.toString() : error.getMessage())
+            );
         } finally {
             if (process != null) {
                 process.destroy();
