@@ -6,5 +6,13 @@ data class ScanResult(
     val startedAtMillis: Long,
     val completedAtMillis: Long,
 ) {
-    val reclaimableBytes: Long = items.sumOf { it.bytes }
+    val reclaimableBytes: Long = items
+        .asSequence()
+        .filter { it.riskLevel == RiskLevel.SAFE }
+        .sumOf { it.bytes }
+
+    val reviewBytes: Long = items
+        .asSequence()
+        .filter { it.riskLevel != RiskLevel.SAFE }
+        .sumOf { it.bytes }
 }
