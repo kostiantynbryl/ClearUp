@@ -4,6 +4,9 @@ import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.norvexa.clearup.data.accessibility.AccessibilityBatchStage
+import com.norvexa.clearup.data.accessibility.AccessibilityCacheBatch
+import com.norvexa.clearup.data.accessibility.AccessibilityCacheBatchItem
 import com.norvexa.clearup.data.accessibility.AccessibilityCacheCoordinator
 import com.norvexa.clearup.data.accessibility.AccessibilityCacheSession
 import com.norvexa.clearup.data.accessibility.AccessibilityCacheStage
@@ -25,7 +28,7 @@ import kotlinx.coroutines.launch
 
 enum class AppActionBackend(val label: String) {
     NONE("Стандартный режим"),
-    ACCESSIBILITY("Accessibility"),
+    ACCESSIBILITY("Спецвозможности"),
     SHIZUKU("Shizuku"),
     ROOT("Root"),
 }
@@ -44,18 +47,30 @@ data class AppsUiState(
     val shizukuCacheClearSupported: Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
     val protectedPackages: Set<String> = emptySet(),
+    val selectedPackages: Set<String> = emptySet(),
     val busyPackage: String? = null,
+    val batchRunning: Boolean = false,
+    val batchCompleted: Int = 0,
+    val batchTotal: Int = 0,
+    val batchFailed: Int = 0,
+    val batchMessage: String? = null,
     val message: String? = null,
     val error: String? = null,
 ) {
     val visibleApps: List<InstalledApp>
-        get() = if (query.isBlank()) {
-            allApps
-        } else {
-            allApps.filter { app ->
-                app.label.contains(query, ignoreCase = true) ||
-                    app.packageName.contains(query, ignoreCase = true)
+        get() {
+            val filtered = if (query.isBlank()) {
+                allApps
+            } else {
+                allApps.filter { app ->
+                    app.label.contains(query, ignoreCase = true) ||
+                        app.packageName.contains(query, ignoreCase = true)
+                }
             }
+            return filtered.sortedWith(
+                compareByDescending<InstalledApp> { it.cacheBytes ?: -1L }
+                    .thenBy { it.label.lowercase() },
+            )
         }
 
     val actionBackend: AppActionBackend
@@ -66,6 +81,17 @@ data class AppsUiState(
                 AppActionBackend.ACCESSIBILITY
             else -> AppActionBackend.NONE
         }
+
+    fun isCacheEligible(app: InstalledApp): Boolean =
+        !app.isSystem &&
+            app.packageName != ownPackageName &&
+            app.packageName !in protectedPackages
+
+    val selectedApps: List<InstalledApp>
+        get() = allApps.filter { it.packageName in selectedPackages && isCacheEligible(it) }
+
+    val selectedCacheBytes: Long
+        get() = selectedApps.sumOf { it.cacheBytes ?: 0L }
 }
 
 enum class AppMaintenanceAction {
@@ -92,18 +118,29 @@ class AppsViewModel(
         viewModelScope.launch {
             accessibilityCoordinator.state.collect { accessibility ->
                 val session = accessibility.session
+                val batch = accessibility.batch
                 _state.update { current ->
                     current.copy(
                         accessibilityServiceEnabled = accessibility.serviceEnabled,
                         accessibilityConsentAccepted = accessibility.consentAccepted,
                         busyPackage = when {
+                            batch?.active == true -> batch.currentItem?.packageName
                             session?.active == true -> session.packageName
-                            session != null && current.busyPackage == session.packageName -> null
+                            current.actionBackend == AppActionBackend.ACCESSIBILITY -> null
                             else -> current.busyPackage
                         },
+                        batchRunning = batch?.active == true,
+                        batchCompleted = batch?.completedCount ?: current.batchCompleted,
+                        batchTotal = batch?.totalCount ?: current.batchTotal,
+                        batchFailed = batch?.failedCount ?: current.batchFailed,
+                        batchMessage = batch?.message,
                     )
                 }
-                handleAccessibilityResult(session)
+                if (batch != null) {
+                    handleAccessibilityBatchResult(batch)
+                } else {
+                    handleLegacyAccessibilityResult(session)
+                }
             }
         }
     }
@@ -126,15 +163,19 @@ class AppsViewModel(
                     Triple(apps.await(), privilege.await(), protected.await())
                 }
             }.onSuccess { (apps, privilege, protected) ->
-                _state.update {
-                    it.copy(
+                _state.update { current ->
+                    val protectedPackages = protected + ownPackageName
+                    current.copy(
                         loading = false,
                         allApps = apps,
                         rootAvailable = privilege.rootAvailable,
                         shizukuAvailable = privilege.shizukuRunning &&
                             privilege.shizukuPermissionGranted &&
                             shizukuClient.isReady(),
-                        protectedPackages = protected + ownPackageName,
+                        protectedPackages = protectedPackages,
+                        selectedPackages = current.selectedPackages.filterTo(hashSetOf()) { packageName ->
+                            packageName !in protectedPackages && packageName != ownPackageName
+                        },
                     )
                 }
             }.onFailure { error ->
@@ -162,6 +203,7 @@ class AppsViewModel(
             it.copy(
                 accessibilityLaunchPackage = null,
                 busyPackage = null,
+                batchRunning = false,
                 error = message,
             )
         }
@@ -169,6 +211,61 @@ class AppsViewModel(
 
     fun setQuery(query: String) {
         _state.update { it.copy(query = query) }
+    }
+
+    fun toggleSelected(packageName: String) {
+        _state.update { current ->
+            val app = current.allApps.firstOrNull { it.packageName == packageName }
+                ?: return@update current
+            if (!current.isCacheEligible(app) || current.batchRunning) return@update current
+            val selected = current.selectedPackages.toMutableSet()
+            if (!selected.add(packageName)) selected.remove(packageName)
+            current.copy(selectedPackages = selected)
+        }
+    }
+
+    fun selectVisibleEligible() {
+        _state.update { current ->
+            if (current.batchRunning) return@update current
+            val packages = current.visibleApps
+                .asSequence()
+                .filter(current::isCacheEligible)
+                .map { it.packageName }
+                .take(MAX_BATCH_ITEMS)
+                .toSet()
+            current.copy(selectedPackages = packages)
+        }
+    }
+
+    fun clearSelection() {
+        _state.update { current ->
+            if (current.batchRunning) current else current.copy(selectedPackages = emptySet())
+        }
+    }
+
+    fun clearSelectedCaches() {
+        val current = _state.value
+        val selected = current.selectedApps.take(MAX_BATCH_ITEMS)
+        if (selected.isEmpty() || current.batchRunning || current.busyPackage != null) return
+
+        when (current.actionBackend) {
+            AppActionBackend.NONE -> {
+                _state.update {
+                    it.copy(error = "Для скрытого кэша настройте Root, Shizuku или Спецвозможности")
+                }
+            }
+            AppActionBackend.SHIZUKU -> {
+                if (!current.shizukuCacheClearSupported) {
+                    _state.update {
+                        it.copy(error = "Shizuku cache-only поддерживается ClearUp на Android 13+")
+                    }
+                } else {
+                    runPrivilegedBatch(selected, AppActionBackend.SHIZUKU)
+                }
+            }
+            AppActionBackend.ROOT -> runPrivilegedBatch(selected, AppActionBackend.ROOT)
+            AppActionBackend.ACCESSIBILITY -> startAccessibilityBatch(selected)
+        }
     }
 
     fun setProtected(packageName: String, protected: Boolean) {
@@ -183,6 +280,7 @@ class AppsViewModel(
             _state.update {
                 it.copy(
                     protectedPackages = packages,
+                    selectedPackages = it.selectedPackages - packages,
                     message = if (protected) {
                         "Приложение добавлено в исключения"
                     } else {
@@ -201,51 +299,20 @@ class AppsViewModel(
             app.isSystem ||
             app.packageName in current.protectedPackages ||
             current.busyPackage != null ||
-            (
-                backend == AppActionBackend.SHIZUKU &&
-                    action == AppMaintenanceAction.CLEAR_CACHE &&
-                    !current.shizukuCacheClearSupported
-                ) ||
-            (
-                backend == AppActionBackend.ACCESSIBILITY &&
-                    action != AppMaintenanceAction.CLEAR_CACHE
-                )
+            current.batchRunning ||
+            (backend == AppActionBackend.SHIZUKU && action == AppMaintenanceAction.CLEAR_CACHE && !current.shizukuCacheClearSupported) ||
+            (backend == AppActionBackend.ACCESSIBILITY && action != AppMaintenanceAction.CLEAR_CACHE)
         ) {
             return
         }
 
         if (backend == AppActionBackend.ACCESSIBILITY) {
-            runCatching {
-                accessibilityCoordinator.begin(
-                    packageName = app.packageName,
-                    appLabel = app.label,
-                    estimatedBytes = app.cacheBytes ?: 0,
-                )
-            }.onSuccess {
-                _state.update {
-                    it.copy(
-                        busyPackage = app.packageName,
-                        accessibilityLaunchPackage = app.packageName,
-                        message = "Открываю системную карточку. Не закрывайте её до завершения запроса.",
-                        error = null,
-                    )
-                }
-            }.onFailure { error ->
-                _state.update {
-                    it.copy(error = error.message ?: "Не удалось запустить Accessibility-помощник")
-                }
-            }
+            startAccessibilityBatch(listOf(app))
             return
         }
 
         viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    busyPackage = app.packageName,
-                    message = null,
-                    error = null,
-                )
-            }
+            _state.update { it.copy(busyPackage = app.packageName, message = null, error = null) }
             val result = when (backend) {
                 AppActionBackend.ROOT -> when (action) {
                     AppMaintenanceAction.CLEAR_CACHE -> rootShell.clearCache(app.packageName)
@@ -267,18 +334,13 @@ class AppsViewModel(
                 history.record(
                     type = HistoryType.APP_ACTION,
                     itemCount = 1,
-                    bytes = if (action == AppMaintenanceAction.CLEAR_CACHE) {
-                        app.cacheBytes ?: 0
-                    } else {
-                        0
-                    },
+                    bytes = if (action == AppMaintenanceAction.CLEAR_CACHE) app.cacheBytes ?: 0 else 0,
                     note = "${backend.name}:${action.name}: ${app.packageName}",
                 )
-                val refreshedApps = repository.loadApps(current.includeSystemApps)
                 _state.update {
                     it.copy(
                         busyPackage = null,
-                        allApps = refreshedApps,
+                        allApps = repository.loadApps(current.includeSystemApps),
                         message = actionSuccessMessage(action, backend),
                     )
                 }
@@ -286,20 +348,152 @@ class AppsViewModel(
                 _state.update {
                     it.copy(
                         busyPackage = null,
-                        error = result.error.ifBlank {
-                            result.output.ifBlank {
-                                "Операция ${backend.label} завершилась с ошибкой"
-                            }
-                        },
+                        error = result.error.ifBlank { result.output.ifBlank { "Операция ${backend.label} завершилась с ошибкой" } },
                     )
                 }
             }
         }
     }
 
-    private suspend fun handleAccessibilityResult(session: AccessibilityCacheSession?) {
-        if (session == null || session.active || session.historyRecorded) return
+    private fun runPrivilegedBatch(
+        apps: List<InstalledApp>,
+        backend: AppActionBackend,
+    ) {
+        viewModelScope.launch {
+            var completed = 0
+            var failed = 0
+            var clearedBytes = 0L
+            _state.update {
+                it.copy(
+                    batchRunning = true,
+                    batchCompleted = 0,
+                    batchTotal = apps.size,
+                    batchFailed = 0,
+                    batchMessage = "Начинаем очистку кэша",
+                    message = null,
+                    error = null,
+                )
+            }
+            apps.forEachIndexed { index, app ->
+                _state.update {
+                    it.copy(
+                        busyPackage = app.packageName,
+                        batchMessage = "${app.label} · ${index + 1} из ${apps.size}",
+                    )
+                }
+                val result = when (backend) {
+                    AppActionBackend.ROOT -> rootShell.clearCache(app.packageName)
+                    AppActionBackend.SHIZUKU -> shizukuClient.clearCache(app.packageName)
+                    else -> return@forEachIndexed
+                }
+                if (result.success) {
+                    completed += 1
+                    clearedBytes += app.cacheBytes ?: 0L
+                } else {
+                    failed += 1
+                }
+                _state.update {
+                    it.copy(batchCompleted = completed, batchFailed = failed)
+                }
+            }
+            if (completed > 0) {
+                history.record(
+                    type = HistoryType.APP_ACTION,
+                    itemCount = completed,
+                    bytes = clearedBytes,
+                    note = "${backend.name}:BATCH_CLEAR_CACHE",
+                )
+            }
+            val refreshed = repository.loadApps(_state.value.includeSystemApps)
+            _state.update {
+                it.copy(
+                    allApps = refreshed,
+                    selectedPackages = emptySet(),
+                    busyPackage = null,
+                    batchRunning = false,
+                    batchCompleted = completed,
+                    batchFailed = failed,
+                    batchMessage = null,
+                    message = "Кэш очищен у $completed приложений${if (failed > 0) ", ошибок: $failed" else ""} · ${backend.label}",
+                )
+            }
+        }
+    }
 
+    private fun startAccessibilityBatch(apps: List<InstalledApp>) {
+        runCatching {
+            accessibilityCoordinator.beginBatch(
+                apps.map { app ->
+                    AccessibilityCacheBatchItem(
+                        packageName = app.packageName,
+                        appLabel = app.label,
+                        estimatedBytes = app.cacheBytes ?: 0L,
+                    )
+                },
+            )
+        }.onSuccess { first ->
+            _state.update {
+                it.copy(
+                    busyPackage = first.packageName,
+                    accessibilityLaunchPackage = first.packageName,
+                    batchRunning = true,
+                    batchCompleted = 0,
+                    batchTotal = apps.size,
+                    batchFailed = 0,
+                    batchMessage = "Открываем ${first.appLabel}",
+                    message = "ClearUp пройдёт выбранные приложения по очереди через системную кнопку «Очистить кэш».",
+                    error = null,
+                )
+            }
+        }.onFailure { error ->
+            _state.update {
+                it.copy(error = error.message ?: "Не удалось запустить пакетную Accessibility-очистку")
+            }
+        }
+    }
+
+    private suspend fun handleAccessibilityBatchResult(batch: AccessibilityCacheBatch) {
+        if (batch.active || batch.historyRecorded) return
+        try {
+            if (batch.completedCount > 0) {
+                history.record(
+                    type = HistoryType.APP_ACTION,
+                    itemCount = batch.completedCount,
+                    bytes = batch.clearedEstimateBytes,
+                    note = "ACCESSIBILITY:BATCH_CLEAR_CACHE:${batch.stage.name}",
+                )
+            }
+            val refreshedApps = if (_state.value.allApps.isEmpty()) {
+                _state.value.allApps
+            } else {
+                repository.loadApps(_state.value.includeSystemApps)
+            }
+            _state.update {
+                it.copy(
+                    allApps = refreshedApps,
+                    selectedPackages = emptySet(),
+                    busyPackage = null,
+                    batchRunning = false,
+                    batchCompleted = batch.completedCount,
+                    batchTotal = batch.totalCount,
+                    batchFailed = batch.failedCount,
+                    batchMessage = null,
+                    message = when (batch.stage) {
+                        AccessibilityBatchStage.COMPLETED -> "Готово: кэш очищен у ${batch.completedCount} приложений · Спецвозможности"
+                        AccessibilityBatchStage.CANCELLED -> batch.message
+                        AccessibilityBatchStage.FAILED -> null
+                        AccessibilityBatchStage.RUNNING -> null
+                    },
+                    error = if (batch.stage == AccessibilityBatchStage.FAILED) batch.message else null,
+                )
+            }
+        } finally {
+            accessibilityCoordinator.markBatchHistoryRecorded(batch.id)
+        }
+    }
+
+    private suspend fun handleLegacyAccessibilityResult(session: AccessibilityCacheSession?) {
+        if (session == null || session.active || session.historyRecorded) return
         try {
             when (session.stage) {
                 AccessibilityCacheStage.COMPLETED -> {
@@ -309,57 +503,19 @@ class AppsViewModel(
                         bytes = session.estimatedBytes,
                         note = "ACCESSIBILITY:CLEAR_CACHE_CLICKED: ${session.packageName}",
                     )
-                    val current = _state.value
-                    val refreshedApps = if (current.allApps.isEmpty()) {
-                        current.allApps
-                    } else {
-                        repository.loadApps(current.includeSystemApps)
-                    }
-                    _state.update {
-                        it.copy(
-                            busyPackage = null,
-                            allApps = refreshedApps,
-                            message = "Системная команда очистки кэша выполнена · Accessibility",
-                            error = null,
-                        )
-                    }
                 }
-                AccessibilityCacheStage.FAILED -> {
-                    _state.update {
-                        it.copy(
-                            busyPackage = null,
-                            error = session.message,
-                        )
-                    }
-                }
-                AccessibilityCacheStage.CANCELLED -> {
-                    _state.update {
-                        it.copy(
-                            busyPackage = null,
-                            message = session.message,
-                        )
-                    }
-                }
+                AccessibilityCacheStage.FAILED -> _state.update { it.copy(error = session.message) }
+                AccessibilityCacheStage.CANCELLED -> _state.update { it.copy(message = session.message) }
                 AccessibilityCacheStage.WAITING_APP_DETAILS,
                 AccessibilityCacheStage.WAITING_STORAGE_PAGE,
                 -> Unit
-            }
-        } catch (error: Throwable) {
-            _state.update {
-                it.copy(
-                    busyPackage = null,
-                    error = error.message ?: "Не удалось обработать результат Accessibility",
-                )
             }
         } finally {
             accessibilityCoordinator.markHistoryRecorded(session.id)
         }
     }
 
-    private fun actionSuccessMessage(
-        action: AppMaintenanceAction,
-        backend: AppActionBackend,
-    ): String {
+    private fun actionSuccessMessage(action: AppMaintenanceAction, backend: AppActionBackend): String {
         val message = when (action) {
             AppMaintenanceAction.CLEAR_CACHE -> "Кэш приложения очищен"
             AppMaintenanceAction.FORCE_STOP -> "Приложение остановлено"
@@ -390,5 +546,9 @@ class AppsViewModel(
             history = history,
             ownPackageName = ownPackageName,
         ) as T
+    }
+
+    companion object {
+        private const val MAX_BATCH_ITEMS = 100
     }
 }

@@ -1,11 +1,7 @@
 package com.norvexa.clearup.feature.home
 
 import android.Manifest
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
-import android.os.Environment
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -20,18 +16,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FolderDelete
-import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,46 +44,62 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.norvexa.clearup.core.designsystem.InfoCard
 import com.norvexa.clearup.core.util.ByteFormatter
+import com.norvexa.clearup.data.storage.StorageAccessRepository
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    storageAccessRepository: StorageAccessRepository,
     onStartScan: () -> Unit,
+    onAppCache: () -> Unit,
+    onTools: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var permissionRefresh by remember { mutableStateOf(0) }
-    val mediaPermissions = remember {
-        when {
-            Build.VERSION.SDK_INT >= 33 -> arrayOf(
-                Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO,
-                Manifest.permission.READ_MEDIA_AUDIO,
-            )
-            else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var accessState by remember { mutableStateOf(storageAccessRepository.readState()) }
+
+    val legacyPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        accessState = storageAccessRepository.readState()
+    }
+    val allFilesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        accessState = storageAccessRepository.readState()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                accessState = storageAccessRepository.readState()
+            }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        permissionRefresh++
-    }
-    val hasMediaPermission = remember(permissionRefresh) {
-        mediaPermissions.all { ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
-    }
-    val hasAllFiles = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = 20.dp,
+            end = 20.dp,
+            top = 16.dp,
+            bottom = 96.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Text("Память устройства", style = MaterialTheme.typography.headlineMedium)
+            Text("ClearUp", style = MaterialTheme.typography.displaySmall)
             Text(
-                "Безопасный анализ и прозрачное удаление файлов",
+                "Хранилище без лишнего шума",
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -97,98 +113,157 @@ fun HomeScreen(
             )
         }
         item {
-            Button(onClick = onStartScan, modifier = Modifier.fillMaxWidth(), enabled = !state.loading) {
-                Text("Начать сканирование")
+            Button(
+                onClick = onStartScan,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                enabled = !state.loading,
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
+                Text("Проверить и очистить", modifier = Modifier.padding(start = 8.dp))
             }
         }
-        if (!hasMediaPermission || !hasAllFiles) {
+        item {
+            FilledTonalButton(
+                onClick = onAppCache,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Icon(Icons.Outlined.Apps, contentDescription = null)
+                Text("Очистить кэш приложений", modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+
+        if (!accessState.completeAccess) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Доступ к памяти", style = MaterialTheme.typography.titleMedium)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text("Доступ к файлам", style = MaterialTheme.typography.titleLarge)
                         Text(
-                            "ClearUp анализирует файлы локально. Для полного результата нужны разрешения Android.",
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                "Для полного анализа включите системный доступ «Ко всем файлам». ClearUp не начнёт сканирование без него и не покажет ложный пустой результат."
+                            } else {
+                                "Разрешите чтение общего хранилища для полного анализа."
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (!hasMediaPermission) {
-                            OutlinedButton(onClick = { permissionLauncher.launch(mediaPermissions) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Разрешить доступ к медиа")
-                            }
-                        }
-                        if (!hasAllFiles && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            OutlinedButton(
-                                onClick = {
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                        Uri.parse("package:${context.packageName}"),
-                                    )
-                                    context.startActivity(intent)
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("Разрешить доступ ко всем файлам")
-                            }
+                        OutlinedButton(
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    runCatching {
+                                        allFilesLauncher.launch(storageAccessRepository.createAllFilesAccessIntent())
+                                    }.onFailure {
+                                        context.startActivity(storageAccessRepository.createAllFilesFallbackIntent())
+                                    }
+                                } else {
+                                    legacyPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Настроить доступ")
                         }
                     }
                 }
             }
         }
+
         item {
-            InfoCard(
-                title = "Безопасный режим включён",
-                body = "Пользовательские файлы не удаляются автоматически — сначала показывается список и системное подтверждение.",
-                icon = Icons.Outlined.Security,
-            )
+            Text("Ещё", style = MaterialTheme.typography.titleLarge)
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                InfoCard(
-                    title = "Локально",
-                    body = "Без облака",
-                    icon = Icons.Outlined.Storage,
-                    modifier = Modifier.weight(1f),
-                )
-                InfoCard(
-                    title = "Корзина",
-                    body = "С восстановлением",
-                    icon = Icons.Outlined.FolderDelete,
-                    modifier = Modifier.weight(1f),
-                )
+            Card(
+                onClick = onTools,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Icon(Icons.Outlined.Build, contentDescription = null)
+                    Column(Modifier.weight(1f)) {
+                        Text("Инструменты", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Дубликаты, анализатор, пустые каталоги, история и расширенный доступ",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
-        item { Spacer(Modifier.height(80.dp)) }
     }
 }
 
 @Composable
-private fun StorageHero(loading: Boolean, total: Long, used: Long, free: Long, fraction: Float) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun StorageHero(
+    loading: Boolean,
+    total: Long,
+    used: Long,
+    free: Long,
+    fraction: Float,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+    ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(22.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(132.dp)) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(126.dp)) {
                 if (loading) {
                     CircularProgressIndicator()
                 } else {
                     val primary = MaterialTheme.colorScheme.primary
                     val track = MaterialTheme.colorScheme.surfaceVariant
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val stroke = 14.dp.toPx()
-                        drawArc(track, -90f, 360f, false, Offset(stroke, stroke), Size(size.width - stroke * 2, size.height - stroke * 2), style = Stroke(stroke, cap = StrokeCap.Round))
-                        drawArc(primary, -90f, 360f * fraction, false, Offset(stroke, stroke), Size(size.width - stroke * 2, size.height - stroke * 2), style = Stroke(stroke, cap = StrokeCap.Round))
+                        val stroke = 13.dp.toPx()
+                        drawArc(
+                            track,
+                            -90f,
+                            360f,
+                            false,
+                            Offset(stroke, stroke),
+                            Size(size.width - stroke * 2, size.height - stroke * 2),
+                            style = Stroke(stroke, cap = StrokeCap.Round),
+                        )
+                        drawArc(
+                            primary,
+                            -90f,
+                            360f * fraction,
+                            false,
+                            Offset(stroke, stroke),
+                            Size(size.width - stroke * 2, size.height - stroke * 2),
+                            style = Stroke(stroke, cap = StrokeCap.Round),
+                        )
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.titleLarge)
+                        Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.headlineMedium)
                         Text("занято", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Всего: ${ByteFormatter.format(total)}", style = MaterialTheme.typography.titleMedium)
-                Text("Занято: ${ByteFormatter.format(used)}")
-                Text("Свободно: ${ByteFormatter.format(free)}", color = MaterialTheme.colorScheme.secondary)
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("${ByteFormatter.format(free)} свободно", style = MaterialTheme.typography.titleLarge)
+                Text("Занято ${ByteFormatter.format(used)}")
+                Text(
+                    "Всего ${ByteFormatter.format(total)}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

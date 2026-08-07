@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -57,7 +56,6 @@ private enum class MainDestination(
 ) {
     HOME("home", "Главная", Icons.Outlined.Home),
     SCAN("scan", "Очистка", Icons.Outlined.AutoAwesome),
-    TOOLS("tools", "Инструменты", Icons.Outlined.Build),
     APPS("apps", "Приложения", Icons.Outlined.Apps),
     SETTINGS("settings", "Настройки", Icons.Outlined.Settings),
 }
@@ -88,6 +86,7 @@ fun ClearUpNavigation(container: AppContainer) {
                         "history" -> "История"
                         "privileges" -> "Доступ"
                         "root-maintenance" -> "Root-обслуживание"
+                        "tools" -> "Инструменты"
                         "update" -> "Обновление"
                         else -> null
                     }
@@ -105,9 +104,7 @@ fun ClearUpNavigation(container: AppContainer) {
                             selected = selected,
                             onClick = {
                                 navController.navigate(destination.route) {
-                                    popUpTo(MainDestination.HOME.route) {
-                                        saveState = true
-                                    }
+                                    popUpTo(MainDestination.HOME.route) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
                                 }
@@ -136,7 +133,10 @@ fun ClearUpNavigation(container: AppContainer) {
                 )
                 HomeScreen(
                     viewModel = viewModel,
+                    storageAccessRepository = container.storageAccessRepository,
                     onStartScan = { navController.navigate(MainDestination.SCAN.route) },
+                    onAppCache = { navController.navigate(MainDestination.APPS.route) },
+                    onTools = { navController.navigate("tools") },
                 )
             }
             composable(MainDestination.SCAN.route) {
@@ -150,21 +150,9 @@ fun ClearUpNavigation(container: AppContainer) {
                 )
                 ScanScreen(
                     viewModel = viewModel,
+                    storageAccessRepository = container.storageAccessRepository,
                     largeFileThresholdMb = settings.largeFileThresholdMb,
                     preselectSafeItems = settings.safeMode,
-                )
-            }
-            composable(MainDestination.TOOLS.route) {
-                ToolsScreen(
-                    onAnalyzer = { navController.navigate("analyzer") },
-                    onDuplicates = { navController.navigate("duplicates") },
-                    onEmptyDirectories = { navController.navigate("empty-directories") },
-                    onExclusions = { navController.navigate("exclusions") },
-                    onHistory = { navController.navigate("history") },
-                    onPrivileges = { navController.navigate("privileges") },
-                    onAccessibility = { navController.navigate("accessibility") },
-                    onRootMaintenance = { navController.navigate("root-maintenance") },
-                    onUpdate = { navController.navigate("update") },
                 )
             }
             composable(MainDestination.APPS.route) {
@@ -191,6 +179,19 @@ fun ClearUpNavigation(container: AppContainer) {
                     repository = container.settingsRepository,
                     scheduler = container.automationScheduler,
                     onAbout = { navController.navigate("about") },
+                )
+            }
+            composable("tools") {
+                ToolsScreen(
+                    onAnalyzer = { navController.navigate("analyzer") },
+                    onDuplicates = { navController.navigate("duplicates") },
+                    onEmptyDirectories = { navController.navigate("empty-directories") },
+                    onExclusions = { navController.navigate("exclusions") },
+                    onHistory = { navController.navigate("history") },
+                    onPrivileges = { navController.navigate("privileges") },
+                    onAccessibility = { navController.navigate("accessibility") },
+                    onRootMaintenance = { navController.navigate("root-maintenance") },
+                    onUpdate = { navController.navigate("update") },
                 )
             }
             composable("accessibility") {

@@ -17,7 +17,9 @@ import com.norvexa.clearup.core.util.ByteFormatter
 import com.norvexa.clearup.data.exclusions.ExclusionRepository
 import com.norvexa.clearup.data.history.HistoryStore
 import com.norvexa.clearup.data.scanner.ScannerEngine
+import com.norvexa.clearup.data.storage.StorageAccessRepository
 import com.norvexa.clearup.domain.model.HistoryType
+import com.norvexa.clearup.domain.model.RiskLevel
 import kotlinx.coroutines.CancellationException
 
 class MaintenanceWorker(
@@ -25,24 +27,29 @@ class MaintenanceWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result = try {
+        val storageAccess = StorageAccessRepository(applicationContext)
+        if (!storageAccess.readState().completeAccess) {
+            return Result.success()
+        }
         val exclusions = ExclusionRepository(applicationContext).current()
         val threshold = inputData.getInt(KEY_THRESHOLD_MB, 100)
-        val result = ScannerEngine(applicationContext).scan(
+        val result = ScannerEngine(applicationContext, storageAccess).scan(
             largeFileThresholdMb = threshold,
             excludedPrefixes = exclusions.pathPrefixes,
         )
+        val safeCount = result.items.count { it.riskLevel == RiskLevel.SAFE }
 
         HistoryStore(applicationContext).use { history ->
             history.record(
                 type = HistoryType.AUTOMATION,
-                itemCount = result.items.size,
+                itemCount = safeCount,
                 bytes = result.reclaimableBytes,
-                note = "Фоновое безопасное сканирование",
+                note = "Фоновое безопасное сканирование · только SAFE",
             )
         }
 
-        if (result.items.isNotEmpty()) {
-            notify(result.items.size, result.reclaimableBytes)
+        if (safeCount > 0 && result.reclaimableBytes > 0) {
+            notify(safeCount, result.reclaimableBytes)
         }
         Result.success()
     } catch (cancelled: CancellationException) {
@@ -74,7 +81,7 @@ class MaintenanceWorker(
             ClearUpNotifications.CHANNEL_SCAN,
         )
             .setSmallIcon(R.drawable.ic_notification_clearup)
-            .setContentTitle("ClearUp нашёл файлы для проверки")
+            .setContentTitle("ClearUp нашёл безопасные файлы для очистки")
             .setContentText("$count объектов · ${ByteFormatter.format(bytes)}")
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
