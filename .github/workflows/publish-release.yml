@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
   issues: write
 
 jobs:
@@ -50,7 +51,7 @@ jobs:
           set -euo pipefail
           if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Release v$VERSION already exists; no signing key or assets will be regenerated."
+            echo "Release v$VERSION already exists; signing and publishing are skipped."
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -90,7 +91,7 @@ jobs:
           - Verified release-assets artifact ID: $RELEASE_ARTIFACT_ID
           - Status-report workflow run ID: $GITHUB_RUN_ID
 
-          The signing-backup artifact is private and expires after 90 days. Download it immediately and keep it offline. This issue contains no signing passwords or key material.
+          The signing-backup artifact is private and expires after 90 days. Keep an offline copy. This issue contains no signing passwords or key material.
           EOF
 
           ISSUE_NUMBER="$(
@@ -120,42 +121,51 @@ jobs:
         if: steps.existing.outputs.exists != 'true'
         run: ./gradlew :app:analyzeReleaseR8Config --stacktrace
 
-      - name: Generate protected production signing key
+      - name: Restore production signing key
         if: steps.existing.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p signing
-          STORE_PASSWORD="$(openssl rand -hex 32)"
-          KEY_PASSWORD="$(openssl rand -hex 32)"
-          KEY_ALIAS="clearup_release"
+          ARTIFACT_LINE="$(
+            gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+              --jq '.artifacts[] | select(.expired == false and (.name | startswith("ClearUp-")) and (.name | endswith("-signing-backup"))) | [.created_at, (.id|tostring), .name] | @tsv' \
+              | sort -r | head -n 1
+          )"
+          test -n "$ARTIFACT_LINE" || {
+            echo "No non-expired ClearUp production signing backup exists. Refusing to generate a new key." >&2
+            exit 1
+          }
+          SIGNING_ARTIFACT_ID="$(printf '%s' "$ARTIFACT_LINE" | cut -f2)"
+          SIGNING_ARTIFACT_NAME="$(printf '%s' "$ARTIFACT_LINE" | cut -f3)"
+          echo "Restoring production key from private artifact: $SIGNING_ARTIFACT_NAME"
+          gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$SIGNING_ARTIFACT_ID/zip" > signing-backup.zip
+          unzip -q signing-backup.zip -d signing-restored
+
+          KEYSTORE_SOURCE="$(find signing-restored -type f -name 'ClearUp-release.jks' | head -n 1)"
+          CREDENTIALS_SOURCE="$(find signing-restored -type f -name 'credentials.txt' | head -n 1)"
+          test -f "$KEYSTORE_SOURCE"
+          test -f "$CREDENTIALS_SOURCE"
+          cp "$KEYSTORE_SOURCE" signing/ClearUp-release.jks
+          cp "$CREDENTIALS_SOURCE" signing/credentials.txt
+
+          STORE_PASSWORD="$(sed -n 's/^Store password: //p' signing/credentials.txt | head -n 1)"
+          KEY_PASSWORD="$(sed -n 's/^Key password: //p' signing/credentials.txt | head -n 1)"
+          KEY_ALIAS="$(sed -n 's/^Key alias: //p' signing/credentials.txt | head -n 1)"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_PASSWORD"
+          test -n "$KEY_ALIAS"
           echo "::add-mask::$STORE_PASSWORD"
           echo "::add-mask::$KEY_PASSWORD"
           echo "CLEARUP_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
           echo "CLEARUP_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           echo "CLEARUP_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
-          keytool -genkeypair \
-            -keystore signing/ClearUp-release.jks \
-            -storetype JKS \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" \
-            -keypass "$KEY_PASSWORD" \
-            -keyalg RSA \
-            -keysize 4096 \
-            -sigalg SHA256withRSA \
-            -validity 10000 \
-            -dname "CN=ClearUp by NORVEXA, OU=Mobile, O=NORVEXA, L=Kyiv, ST=Kyiv, C=UA"
-          {
-            echo "ClearUp by NORVEXA production signing backup"
-            echo "Version: $VERSION"
-            echo "Key alias: $KEY_ALIAS"
-            echo "Store password: $STORE_PASSWORD"
-            echo "Key password: $KEY_PASSWORD"
-            echo
-            echo "KEEP THIS FILE AND ClearUp-release.jks PRIVATE."
-            echo "Every future ClearUp update must be signed with this same key."
-          } > signing/credentials.txt
           chmod 600 signing/ClearUp-release.jks signing/credentials.txt
+
+          keytool -list \
+            -keystore signing/ClearUp-release.jks \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" >/dev/null
 
       - name: Build signed release APK
         if: steps.existing.outputs.exists != 'true'
@@ -187,6 +197,28 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "dist/$APK_NAME" | tee signing/certificate.txt
           PACKAGE_NAME="$("$AAPT" dump badging "dist/$APK_NAME" | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -n 1)"
           test "$PACKAGE_NAME" = "com.norvexa.clearup"
+
+          PREVIOUS_TAG="$(
+            gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isDraft,isPrerelease,publishedAt \
+              --jq '[.[] | select(.isDraft == false and .isPrerelease == false)] | sort_by(.publishedAt) | reverse | .[0].tagName // empty'
+          )"
+          test -n "$PREVIOUS_TAG" || {
+            echo "A previous production release is required to verify signing continuity." >&2
+            exit 1
+          }
+          mkdir -p previous-release
+          gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir previous-release
+          PREVIOUS_APK="$(find previous-release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          test -f "$PREVIOUS_APK"
+
+          CURRENT_CERT="$("$APKSIGNER" verify --print-certs "dist/$APK_NAME" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+          PREVIOUS_CERT="$("$APKSIGNER" verify --print-certs "$PREVIOUS_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+          test -n "$CURRENT_CERT"
+          test -n "$PREVIOUS_CERT"
+          test "$CURRENT_CERT" = "$PREVIOUS_CERT" || {
+            echo "Signing certificate differs from $PREVIOUS_TAG. Refusing to publish an incompatible update." >&2
+            exit 1
+          }
 
           (
             cd dist
