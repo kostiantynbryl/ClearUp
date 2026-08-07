@@ -19,6 +19,7 @@ import com.norvexa.clearup.data.report.ReportExporter
 import com.norvexa.clearup.data.scanner.ScannerEngine
 import com.norvexa.clearup.data.settings.SettingsRepository
 import com.norvexa.clearup.data.storage.AndroidStorageRepository
+import com.norvexa.clearup.data.storage.StorageAccessRepository
 import com.norvexa.clearup.data.update.UpdateRepository
 
 class AppContainer(context: Context) {
@@ -30,8 +31,9 @@ class AppContainer(context: Context) {
     val historyStore = HistoryStore(appContext)
     val reportExporter = ReportExporter(appContext)
     val storageRepository = AndroidStorageRepository(appContext)
+    val storageAccessRepository = StorageAccessRepository(appContext)
     val appRepository = AndroidAppRepository(appContext)
-    val scannerEngine = ScannerEngine(appContext)
+    val scannerEngine = ScannerEngine(appContext, storageAccessRepository)
     val duplicateRepository = DuplicateRepository(appContext)
     val emptyDirectoryRepository = EmptyDirectoryRepository(appContext)
     val trashManager = TrashManager(appContext)
