@@ -1,12 +1,18 @@
 package com.norvexa.clearup.data.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import java.util.ArrayDeque
 
 class ClearUpAccessibilityService : AccessibilityService() {
     private val coordinator by lazy { AccessibilityCacheCoordinator(applicationContext) }
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var lastAttemptKey: String? = null
     private var lastAttemptAtMillis: Long = 0
 
@@ -52,6 +58,7 @@ class ClearUpAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         coordinator.refreshCapabilities()
         coordinator.close()
         super.onDestroy()
@@ -111,13 +118,58 @@ class ClearUpAccessibilityService : AccessibilityService() {
         } ?: return false
 
         return if (performSafeClick(target)) {
-            coordinator.complete(
+            val next = coordinator.completeAndAdvance(
                 sessionId = session.id,
                 message = "Системная кнопка «Очистить кэш» нажата",
             )
+            scheduleNext(next)
             true
         } else {
             false
+        }
+    }
+
+    private fun scheduleNext(next: AccessibilityCacheSession?) {
+        mainHandler.postDelayed(
+            {
+                if (next == null) {
+                    returnToClearUp()
+                } else {
+                    openApplicationDetails(next.packageName)
+                }
+            },
+            NEXT_APP_DELAY_MILLIS,
+        )
+    }
+
+    private fun openApplicationDetails(packageName: String) {
+        if (!AccessibilityCachePolicy.isValidPackageName(packageName)) return
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure { error ->
+            coordinator.activeSession()?.let { session ->
+                coordinator.fail(
+                    session.id,
+                    error.message ?: "Система не открыла карточку следующего приложения",
+                )
+            }
+        }
+    }
+
+    private fun returnToClearUp() {
+        runCatching {
+            packageManager.getLaunchIntentForPackage(applicationContext.packageName)
+                ?.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+                ?.let(::startActivity)
         }
     }
 
@@ -176,6 +228,7 @@ class ClearUpAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val ACTION_DEBOUNCE_MILLIS = 700L
+        private const val NEXT_APP_DELAY_MILLIS = 550L
         private const val MAX_VISITED_NODES = 600
         private const val MAX_PARENT_DEPTH = 4
     }
