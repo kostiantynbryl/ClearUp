@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -32,6 +33,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.norvexa.clearup.data.accessibility.AccessibilityBatchStage
 import com.norvexa.clearup.data.accessibility.AccessibilityCacheCoordinator
 import com.norvexa.clearup.data.accessibility.AccessibilityCacheStage
 
@@ -48,9 +50,7 @@ fun AccessibilitySetupScreen(coordinator: AccessibilityCacheCoordinator) {
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                coordinator.refreshCapabilities()
-            }
+            if (event == Lifecycle.Event.ON_RESUME) coordinator.refreshCapabilities()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -58,46 +58,37 @@ fun AccessibilitySetupScreen(coordinator: AccessibilityCacheCoordinator) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
+            Text("Очистка через Спецвозможности", style = MaterialTheme.typography.headlineLarge)
             Text(
-                "Accessibility-помощник",
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Text(
-                "Fallback для устройств без Root и Shizuku",
+                "Режим для устройств без Root и подходящего Shizuku",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Что делает ClearUp", style = MaterialTheme.typography.titleMedium)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+            ) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        "После вашего нажатия для конкретного приложения ClearUp открывает его системную карточку, переходит в раздел хранилища и нажимает только точную кнопку «Очистить кэш».",
+                        if (state.serviceEnabled && state.consentAccepted) "Готово к работе" else "Нужна одноразовая настройка",
+                        style = MaterialTheme.typography.titleLarge,
                     )
                     Text(
-                        "Сервис не читает содержимое приложений, не вводит текст, не выполняет жесты, не нажимает «Очистить данные/хранилище» и не запускает операции в фоне.",
+                        if (state.serviceEnabled) "Системный сервис включён" else "Системный сервис выключен",
+                        color = if (state.serviceEnabled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "Каждый запрос действует не более 90 секунд и может быть отменён.",
+                        "После запуска пакетной очистки ClearUp открывает только карточки выбранных приложений и нажимает только точную кнопку «Очистить кэш». Неизвестный экран останавливает очередь.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-        }
-
-        item {
-            StatusCard(
-                title = "Системный сервис",
-                value = if (state.serviceEnabled) "Включён" else "Выключен",
-            )
         }
 
         item {
@@ -111,7 +102,7 @@ fun AccessibilitySetupScreen(coordinator: AccessibilityCacheCoordinator) {
                     onCheckedChange = { consentChecked = it },
                 )
                 Text(
-                    "Я понимаю принцип работы и разрешаю использовать Accessibility только для выбранных мной операций очистки кэша.",
+                    "Разрешаю ClearUp использовать Спецвозможности только для выбранной мной очистки кэша.",
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -124,15 +115,10 @@ fun AccessibilitySetupScreen(coordinator: AccessibilityCacheCoordinator) {
                     context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 },
                 enabled = consentChecked,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(18.dp),
             ) {
-                Text(
-                    if (state.serviceEnabled) {
-                        "Открыть настройки Accessibility"
-                    } else {
-                        "Согласен и открыть настройки"
-                    },
-                )
+                Text(if (state.serviceEnabled) "Открыть системные настройки" else "Продолжить в системных настройках")
             }
         }
 
@@ -145,63 +131,75 @@ fun AccessibilitySetupScreen(coordinator: AccessibilityCacheCoordinator) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Отозвать согласие и отменить запрос")
+                    Text("Отозвать согласие")
                 }
             }
         }
 
-        state.session?.let { session ->
+        state.batch?.let { batch ->
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Пакетная очистка", style = MaterialTheme.typography.titleMedium)
+                        Text("${batch.completedCount} из ${batch.totalCount} · ошибок ${batch.failedCount}")
+                        batch.currentItem?.takeIf { batch.active }?.let { Text("Сейчас: ${it.appLabel}") }
+                        Text(batch.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            when (batch.stage) {
+                                AccessibilityBatchStage.RUNNING -> "Выполняется"
+                                AccessibilityBatchStage.COMPLETED -> "Завершено"
+                                AccessibilityBatchStage.FAILED -> "Остановлено безопасностью"
+                                AccessibilityBatchStage.CANCELLED -> "Отменено"
+                            },
+                            color = when (batch.stage) {
+                                AccessibilityBatchStage.COMPLETED -> MaterialTheme.colorScheme.secondary
+                                AccessibilityBatchStage.FAILED -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.primary
+                            },
+                        )
+                        if (batch.active) {
+                            OutlinedButton(
+                                onClick = { coordinator.cancel() },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Остановить очередь") }
+                        }
+                    }
+                }
+            }
+        } ?: state.session?.let { session ->
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Последний запрос", style = MaterialTheme.typography.titleMedium)
                         Text(session.appLabel)
-                        Text(
-                            session.packageName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(session.message)
+                        Text(session.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             when (session.stage) {
                                 AccessibilityCacheStage.WAITING_APP_DETAILS -> "Ожидается карточка приложения"
                                 AccessibilityCacheStage.WAITING_STORAGE_PAGE -> "Ожидается раздел хранилища"
-                                AccessibilityCacheStage.COMPLETED -> "Команда выполнена"
-                                AccessibilityCacheStage.FAILED -> "Запрос завершён ошибкой"
-                                AccessibilityCacheStage.CANCELLED -> "Запрос отменён"
-                            },
-                            color = when (session.stage) {
-                                AccessibilityCacheStage.COMPLETED -> MaterialTheme.colorScheme.primary
-                                AccessibilityCacheStage.FAILED -> MaterialTheme.colorScheme.error
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                AccessibilityCacheStage.COMPLETED -> "Выполнено"
+                                AccessibilityCacheStage.FAILED -> "Ошибка"
+                                AccessibilityCacheStage.CANCELLED -> "Отменено"
                             },
                         )
-                        if (session.active) {
-                            OutlinedButton(
-                                onClick = { coordinator.cancel() },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("Отменить текущий запрос")
-                            }
-                        }
                     }
                 }
             }
         }
 
-        item { Spacer(Modifier.height(80.dp)) }
-    }
-}
-
-@Composable
-private fun StatusCard(title: String, value: String) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(value)
+        item {
+            Text(
+                "ClearUp не выполняет жесты, не вводит текст, не нажимает «Очистить данные/хранилище» и не работает с произвольными приложениями без вашего выбора.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+        item { Spacer(Modifier.height(72.dp)) }
     }
 }
