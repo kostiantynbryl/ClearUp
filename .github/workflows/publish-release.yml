@@ -190,13 +190,16 @@ jobs:
           cp "$SOURCE_APK" "dist/$APK_NAME"
 
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
-          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -n 1)"
+          APKANALYZER="$(command -v apkanalyzer || true)"
+          if [ -z "$APKANALYZER" ]; then
+            APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer -print | sort -V | tail -n 1)"
+          fi
           test -x "$APKSIGNER"
-          test -x "$AAPT"
+          test -x "$APKANALYZER"
 
           "$APKSIGNER" verify --verbose --print-certs "dist/$APK_NAME" | tee signing/certificate.txt
-          "$AAPT" dump badging "dist/$APK_NAME" > signing/current-badging.txt
-          PACKAGE_NAME="$(sed -n "s/package: name='\([^']*\)'.*/\1/p" signing/current-badging.txt | sed -n '1p')"
+          PACKAGE_NAME="$("$APKANALYZER" manifest application-id "dist/$APK_NAME" | tr -d '\r\n')"
+          echo "APK applicationId: $PACKAGE_NAME"
           test "$PACKAGE_NAME" = "com.norvexa.clearup"
 
           PREVIOUS_TAG="$(
@@ -207,6 +210,7 @@ jobs:
             echo "A previous production release is required to verify signing continuity." >&2
             exit 1
           }
+          echo "Previous production release: $PREVIOUS_TAG"
           mkdir -p previous-release
           gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir previous-release
           PREVIOUS_APK="$(find previous-release -maxdepth 1 -type f -name '*.apk' -print -quit)"
@@ -214,15 +218,17 @@ jobs:
 
           "$APKSIGNER" verify --print-certs "dist/$APK_NAME" > signing/current-cert.txt
           "$APKSIGNER" verify --print-certs "$PREVIOUS_APK" > signing/previous-cert.txt
-          CURRENT_CERT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing/current-cert.txt | sed -n '1p')"
-          PREVIOUS_CERT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing/previous-cert.txt | sed -n '1p')"
+          CURRENT_CERT="$(awk '/certificate SHA-256 digest:/ { print $NF; exit }' signing/current-cert.txt)"
+          PREVIOUS_CERT="$(awk '/certificate SHA-256 digest:/ { print $NF; exit }' signing/previous-cert.txt)"
           test -n "$CURRENT_CERT"
           test -n "$PREVIOUS_CERT"
+          echo "Current certificate:  $CURRENT_CERT"
+          echo "Previous certificate: $PREVIOUS_CERT"
           test "$CURRENT_CERT" = "$PREVIOUS_CERT" || {
             echo "Signing certificate differs from $PREVIOUS_TAG. Refusing to publish an incompatible update." >&2
             exit 1
           }
-          echo "Signing continuity verified against $PREVIOUS_TAG: $CURRENT_CERT"
+          echo "Signing continuity verified against $PREVIOUS_TAG."
 
           (
             cd dist
