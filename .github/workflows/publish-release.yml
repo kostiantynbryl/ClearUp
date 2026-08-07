@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts | head -n 1)"
+          VERSION="$(awk -F'"' '/^[[:space:]]*versionName = "/ { print $2; exit }' app/build.gradle.kts)"
           test -n "$VERSION"
           case "$VERSION" in
             *-dev|*-debug|*-alpha*|*-beta*|*-rc*)
@@ -97,7 +97,8 @@ jobs:
           ISSUE_NUMBER="$(
             gh issue list --repo "$GITHUB_REPOSITORY" --state all \
               --search "$TITLE in:title" --json number,title \
-              --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n 1
+              --jq ".[] | select(.title == \"$TITLE\") | .number" \
+              | sed -n '1p'
           )"
           if [ -n "$ISSUE_NUMBER" ]; then
             gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
@@ -128,9 +129,8 @@ jobs:
           set -euo pipefail
           mkdir -p signing
           ARTIFACT_LINE="$(
-            gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
-              --jq '.artifacts[] | select(.expired == false and (.name | startswith("ClearUp-")) and (.name | endswith("-signing-backup"))) | [.created_at, (.id|tostring), .name] | @tsv' \
-              | sort -r | head -n 1
+            gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select(.expired == false and (.name | startswith("ClearUp-")) and (.name | endswith("-signing-backup")))] | sort_by(.created_at) | reverse | .[0] | select(.) | [.created_at, (.id|tostring), .name] | @tsv'
           )"
           test -n "$ARTIFACT_LINE" || {
             echo "No non-expired ClearUp production signing backup exists. Refusing to generate a new key." >&2
@@ -142,16 +142,16 @@ jobs:
           gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$SIGNING_ARTIFACT_ID/zip" > signing-backup.zip
           unzip -q signing-backup.zip -d signing-restored
 
-          KEYSTORE_SOURCE="$(find signing-restored -type f -name 'ClearUp-release.jks' | head -n 1)"
-          CREDENTIALS_SOURCE="$(find signing-restored -type f -name 'credentials.txt' | head -n 1)"
+          KEYSTORE_SOURCE="$(find signing-restored -type f -name 'ClearUp-release.jks' -print -quit)"
+          CREDENTIALS_SOURCE="$(find signing-restored -type f -name 'credentials.txt' -print -quit)"
           test -f "$KEYSTORE_SOURCE"
           test -f "$CREDENTIALS_SOURCE"
           cp "$KEYSTORE_SOURCE" signing/ClearUp-release.jks
           cp "$CREDENTIALS_SOURCE" signing/credentials.txt
 
-          STORE_PASSWORD="$(sed -n 's/^Store password: //p' signing/credentials.txt | head -n 1)"
-          KEY_PASSWORD="$(sed -n 's/^Key password: //p' signing/credentials.txt | head -n 1)"
-          KEY_ALIAS="$(sed -n 's/^Key alias: //p' signing/credentials.txt | head -n 1)"
+          STORE_PASSWORD="$(awk '/^Store password: / { sub(/^Store password: /, ""); print; exit }' signing/credentials.txt)"
+          KEY_PASSWORD="$(awk '/^Key password: / { sub(/^Key password: /, ""); print; exit }' signing/credentials.txt)"
+          KEY_ALIAS="$(awk '/^Key alias: / { sub(/^Key alias: /, ""); print; exit }' signing/credentials.txt)"
           test -n "$STORE_PASSWORD"
           test -n "$KEY_PASSWORD"
           test -n "$KEY_ALIAS"
@@ -189,13 +189,14 @@ jobs:
           mkdir -p dist
           cp "$SOURCE_APK" "dist/$APK_NAME"
 
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -print | sort -V | tail -n 1)"
           test -x "$APKSIGNER"
           test -x "$AAPT"
 
           "$APKSIGNER" verify --verbose --print-certs "dist/$APK_NAME" | tee signing/certificate.txt
-          PACKAGE_NAME="$("$AAPT" dump badging "dist/$APK_NAME" | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          "$AAPT" dump badging "dist/$APK_NAME" > signing/current-badging.txt
+          PACKAGE_NAME="$(sed -n "s/package: name='\([^']*\)'.*/\1/p" signing/current-badging.txt | sed -n '1p')"
           test "$PACKAGE_NAME" = "com.norvexa.clearup"
 
           PREVIOUS_TAG="$(
@@ -208,17 +209,20 @@ jobs:
           }
           mkdir -p previous-release
           gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir previous-release
-          PREVIOUS_APK="$(find previous-release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          PREVIOUS_APK="$(find previous-release -maxdepth 1 -type f -name '*.apk' -print -quit)"
           test -f "$PREVIOUS_APK"
 
-          CURRENT_CERT="$("$APKSIGNER" verify --print-certs "dist/$APK_NAME" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
-          PREVIOUS_CERT="$("$APKSIGNER" verify --print-certs "$PREVIOUS_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+          "$APKSIGNER" verify --print-certs "dist/$APK_NAME" > signing/current-cert.txt
+          "$APKSIGNER" verify --print-certs "$PREVIOUS_APK" > signing/previous-cert.txt
+          CURRENT_CERT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing/current-cert.txt | sed -n '1p')"
+          PREVIOUS_CERT="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing/previous-cert.txt | sed -n '1p')"
           test -n "$CURRENT_CERT"
           test -n "$PREVIOUS_CERT"
           test "$CURRENT_CERT" = "$PREVIOUS_CERT" || {
             echo "Signing certificate differs from $PREVIOUS_TAG. Refusing to publish an incompatible update." >&2
             exit 1
           }
+          echo "Signing continuity verified against $PREVIOUS_TAG: $CURRENT_CERT"
 
           (
             cd dist
