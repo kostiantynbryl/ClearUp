@@ -9,15 +9,21 @@ import com.norvexa.clearup.data.scanner.rules.LargeFileRule
 import com.norvexa.clearup.data.scanner.rules.OldApkRule
 import com.norvexa.clearup.data.scanner.rules.ScreenshotRule
 import com.norvexa.clearup.data.scanner.rules.TemporaryFileRule
+import com.norvexa.clearup.data.storage.StorageAccessException
+import com.norvexa.clearup.data.storage.StorageAccessRepository
 import com.norvexa.clearup.domain.model.ScanResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class ScannerEngine(private val context: Context) {
+class ScannerEngine(
+    private val context: Context,
+    private val storageAccessRepository: StorageAccessRepository,
+) {
     suspend fun scan(
         largeFileThresholdMb: Int,
         excludedPrefixes: Set<String> = emptySet(),
     ): ScanResult = withContext(Dispatchers.IO) {
+        storageAccessRepository.requireCompleteAccess()
         val started = System.currentTimeMillis()
         val entries = queryMediaEntries().filterNot { entry ->
             excludedPrefixes.any { prefix ->
@@ -92,8 +98,10 @@ class ScannerEngine(private val context: Context) {
                     )
                 }
             }
-        } catch (_: SecurityException) {
-            return emptyList()
+        } catch (error: SecurityException) {
+            throw StorageAccessException(
+                error.message ?: "Android запретил чтение хранилища. Проверьте доступ ClearUp к файлам.",
+            )
         }
         return entries
     }
